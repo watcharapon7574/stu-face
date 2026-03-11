@@ -1,0 +1,24 @@
+{
+  "name": "ระบบเช็คชื่อศูนย์การศึกษาพิเศษ เขต 6 ลพบุรี",
+  "short_name": "เช็คชื่อศูนย์พิเศษ",
+  "description": "ระบบเช็คชื่อด้วย Face Recognition สำหรับศูนย์การศึกษาพิเศษ",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
