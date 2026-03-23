@@ -22,6 +22,9 @@ export default function RootLayout({
   return (
     <html lang="th">
       <body>
+        <span className="fixed top-5 left-4 z-50 text-[10px] text-gray-300 pointer-events-none">
+          v{process.env.NEXT_PUBLIC_APP_VERSION}
+        </span>
         <NavMenu />
         {children}
         <SwRegister />
