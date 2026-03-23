@@ -1,23 +1,45 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import CameraCapture from '@/components/setup/camera-capture'
+import { MapPin, Building2 } from 'lucide-react'
 import type { FaceEmbedding } from '@/types/database'
+
+interface ServicePointOption {
+  id: string
+  name: string
+  short_name: string
+  district: string | null
+  is_headquarters: boolean
+}
 
 export default function SetupPage() {
   const router = useRouter()
   const [step, setStep] = useState<'form' | 'camera' | 'saving'>('form')
   const [studentName, setStudentName] = useState('')
   const [nickname, setNickname] = useState('')
+  const [servicePointId, setServicePointId] = useState('')
+  const [servicePoints, setServicePoints] = useState<ServicePointOption[]>([])
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/service-points')
+      .then((r) => r.json())
+      .then((data) => setServicePoints(data.service_points || []))
+      .catch(() => {})
+  }, [])
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!studentName.trim()) {
       setError('กรุณากรอกชื่อนักเรียน')
+      return
+    }
+    if (!servicePointId) {
+      setError('กรุณาเลือกห้อง/หน่วยบริการ')
       return
     }
     setError(null)
@@ -29,23 +51,22 @@ export default function SetupPage() {
     setError(null)
 
     try {
-      // 1. Create student record
+      const sp = servicePoints.find((s) => s.id === servicePointId)
+
       const createResponse = await fetch('/api/students', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: studentName,
           nickname: nickname || null,
+          service_point: sp?.short_name || null,
         }),
       })
 
-      if (!createResponse.ok) {
-        throw new Error('Failed to create student')
-      }
+      if (!createResponse.ok) throw new Error('Failed to create student')
 
       const { student } = await createResponse.json()
 
-      // 2. Save embeddings
       const embeddingsResponse = await fetch(
         `/api/students/${student.id}/embeddings`,
         {
@@ -55,11 +76,8 @@ export default function SetupPage() {
         }
       )
 
-      if (!embeddingsResponse.ok) {
-        throw new Error('Failed to save embeddings')
-      }
+      if (!embeddingsResponse.ok) throw new Error('Failed to save embeddings')
 
-      // Success! Redirect to home or student list
       alert(`ลงทะเบียน ${studentName} สำเร็จ!`)
       router.push('/')
     } catch (err) {
@@ -68,6 +86,10 @@ export default function SetupPage() {
       setStep('camera')
     }
   }
+
+  // Group: headquarters first, then by district
+  const hqPoints = servicePoints.filter((sp) => sp.is_headquarters)
+  const otherPoints = servicePoints.filter((sp) => !sp.is_headquarters)
 
   return (
     <main className="min-h-screen p-4 md:p-8">
@@ -84,17 +106,12 @@ export default function SetupPage() {
           <Card>
             <CardHeader>
               <CardTitle>ข้อมูลนักเรียน</CardTitle>
-              <CardDescription>
-                กรอกข้อมูลพื้นฐานของนักเรียน
-              </CardDescription>
+              <CardDescription>กรอกข้อมูลพื้นฐานของนักเรียน</CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleFormSubmit} className="space-y-4">
+              <form onSubmit={handleFormSubmit} className="space-y-5">
                 <div>
-                  <label
-                    htmlFor="name"
-                    className="block text-sm font-medium mb-2"
-                  >
+                  <label htmlFor="name" className="block text-sm font-medium mb-2">
                     ชื่อ-นามสกุล <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -102,17 +119,14 @@ export default function SetupPage() {
                     type="text"
                     value={studentName}
                     onChange={(e) => setStudentName(e.target.value)}
-                    className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
                     placeholder="เช่น ด.ช. สมชาย ใจดี"
                     required
                   />
                 </div>
 
                 <div>
-                  <label
-                    htmlFor="nickname"
-                    className="block text-sm font-medium mb-2"
-                  >
+                  <label htmlFor="nickname" className="block text-sm font-medium mb-2">
                     ชื่อเล่น
                   </label>
                   <input
@@ -120,13 +134,90 @@ export default function SetupPage() {
                     type="text"
                     value={nickname}
                     onChange={(e) => setNickname(e.target.value)}
-                    className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
                     placeholder="เช่น ชาย"
                   />
                 </div>
 
+                {/* Service point selector */}
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    ห้อง / หน่วยบริการ <span className="text-red-500">*</span>
+                  </label>
+
+                  <div className="space-y-2 max-h-64 overflow-y-auto border border-gray-200 rounded-xl p-2">
+                    {/* Headquarters */}
+                    {hqPoints.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-1.5 px-2 py-1">
+                          <Building2 className="w-3.5 h-3.5 text-gray-400" />
+                          <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">ศูนย์หลัก</span>
+                        </div>
+                        {hqPoints.map((sp) => (
+                          <label
+                            key={sp.id}
+                            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
+                              servicePointId === sp.id
+                                ? 'bg-cyan-50 border border-cyan-200'
+                                : 'hover:bg-gray-50 border border-transparent'
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="service_point"
+                              value={sp.id}
+                              checked={servicePointId === sp.id}
+                              onChange={(e) => setServicePointId(e.target.value)}
+                              className="accent-cyan-500"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium text-gray-900 truncate">{sp.short_name}</div>
+                              <div className="text-xs text-gray-400 truncate">{sp.name}</div>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Other service points */}
+                    {otherPoints.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-1.5 px-2 py-1 mt-2">
+                          <MapPin className="w-3.5 h-3.5 text-gray-400" />
+                          <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">หน่วยบริการ</span>
+                        </div>
+                        {otherPoints.map((sp) => (
+                          <label
+                            key={sp.id}
+                            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
+                              servicePointId === sp.id
+                                ? 'bg-violet-50 border border-violet-200'
+                                : 'hover:bg-gray-50 border border-transparent'
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="service_point"
+                              value={sp.id}
+                              checked={servicePointId === sp.id}
+                              onChange={(e) => setServicePointId(e.target.value)}
+                              className="accent-violet-500"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium text-gray-900 truncate">{sp.short_name}</div>
+                              {sp.district && (
+                                <div className="text-xs text-gray-400">อ.{sp.district}</div>
+                              )}
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {error && (
-                  <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
+                  <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-xl text-sm">
                     {error}
                   </div>
                 )}
@@ -159,7 +250,7 @@ export default function SetupPage() {
         )}
 
         {error && step === 'camera' && (
-          <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
+          <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-xl text-sm">
             {error}
           </div>
         )}

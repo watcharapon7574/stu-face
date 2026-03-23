@@ -5,23 +5,16 @@ import { supabaseServer } from '@/lib/supabase/server'
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
-    const servicePointId = searchParams.get('service_point_id')
+    const servicePoint = searchParams.get('service_point')
     const isActive = searchParams.get('is_active')
 
     let query = supabaseServer
-      .from('students')
-      .select(`
-        *,
-        service_points:service_point_id (
-          id,
-          name,
-          location
-        )
-      `)
+      .from('std_students')
+      .select('*')
       .order('name')
 
-    if (servicePointId) {
-      query = query.eq('service_point_id', servicePointId)
+    if (servicePoint) {
+      query = query.eq('service_point', servicePoint)
     }
 
     if (isActive !== null) {
@@ -46,7 +39,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { name, nickname, date_of_birth, service_point_id, photo_url } = body
+    const { name, nickname, service_point } = body
 
     if (!name) {
       return NextResponse.json(
@@ -56,14 +49,12 @@ export async function POST(request: Request) {
     }
 
     const { data, error } = await supabaseServer
-      .from('students')
+      .from('std_students')
       .insert({
         name,
         nickname,
-        date_of_birth,
-        service_point_id,
-        photo_url,
-        embeddings: [],
+        service_point,
+        face_embeddings: [],
       })
       .select()
       .single()

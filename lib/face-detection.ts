@@ -1,3 +1,5 @@
+'use client'
+
 import * as human from '@vladmandic/human'
 import type { FaceEmbedding } from '@/types/database'
 
@@ -50,6 +52,14 @@ export async function initializeHuman(): Promise<human.Human> {
     await humanInstance.warmup()
   }
   return humanInstance
+}
+
+/**
+ * Get face triangulation data for mesh drawing
+ */
+export function getFaceTriangulation(): number[] {
+  if (!humanInstance) return []
+  return humanInstance.faceTriangulation || []
 }
 
 /**
@@ -137,7 +147,7 @@ export function compareEmbeddings(
  * @param topN - Number of top matches to return
  * @returns Array of student matches with confidence scores
  */
-export function findBestMatches<T extends { id: string; embeddings: FaceEmbedding[] }>(
+export function findBestMatches<T extends { id: string; face_embeddings: any }>(
   faceEmbedding: FaceEmbedding,
   students: T[],
   topN: number = 3
@@ -145,7 +155,7 @@ export function findBestMatches<T extends { id: string; embeddings: FaceEmbeddin
   const matches = students
     .map((student) => ({
       student,
-      confidence: compareEmbeddings(faceEmbedding, student.embeddings),
+      confidence: compareEmbeddings(faceEmbedding, (student.face_embeddings as FaceEmbedding[]) || []),
     }))
     .filter((match) => match.confidence > 0)
     .sort((a, b) => b.confidence - a.confidence)

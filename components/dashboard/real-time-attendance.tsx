@@ -1,48 +1,30 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { supabase } from '@/lib/supabase/client'
-import { CheckCircle2, XCircle, Clock } from 'lucide-react'
+import { CheckCircle2, Clock, Users, LogIn, LogOut, UserCheck, User, MapPin } from 'lucide-react'
 import type { AttendanceWithRelations } from '@/types/database'
 
 interface RealTimeAttendanceProps {
   date?: string
+  initialData?: AttendanceWithRelations[]
+  totalStudents?: number
   servicePointId?: string
+  teacherServicePointMap?: Record<string, string>
 }
 
 export default function RealTimeAttendance({
   date = new Date().toISOString().split('T')[0],
+  initialData = [],
+  totalStudents = 0,
   servicePointId,
+  teacherServicePointMap = {},
 }: RealTimeAttendanceProps) {
-  const [attendance, setAttendance] = useState<AttendanceWithRelations[]>([])
-  const [loading, setLoading] = useState(true)
+  const [attendance, setAttendance] = useState<AttendanceWithRelations[]>(initialData)
 
   useEffect(() => {
-    // Fetch initial data
-    async function fetchAttendance() {
-      try {
-        const url = new URL('/api/attendance', window.location.origin)
-        url.searchParams.set('date', date)
-        if (servicePointId) {
-          url.searchParams.set('service_point_id', servicePointId)
-        }
+    setAttendance(initialData)
 
-        const response = await fetch(url.toString())
-        if (!response.ok) throw new Error('Failed to fetch attendance')
-
-        const data = await response.json()
-        setAttendance(data.attendance || [])
-      } catch (error) {
-        console.error('Error fetching attendance:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchAttendance()
-
-    // Subscribe to real-time updates
     const channel = supabase
       .channel('attendance-changes')
       .on(
@@ -50,36 +32,33 @@ export default function RealTimeAttendance({
         {
           event: '*',
           schema: 'public',
-          table: 'attendance',
+          table: 'std_attendance',
           filter: `date=eq.${date}`,
         },
         async (payload) => {
-          console.log('Real-time update:', payload)
-
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            // Fetch the complete record with relations
             const { data: newRecord } = await supabase
-              .from('attendance')
-              .select(`
-                *,
-                student:student_id (*),
-                teacher:teacher_id (*)
-              `)
+              .from('std_attendance')
+              .select('*, student:student_id (*)')
               .eq('id', payload.new.id)
               .single()
 
             if (newRecord) {
-              setAttendance((prev) => {
-                const existing = prev.findIndex((r) => r.id === newRecord.id)
-                if (existing >= 0) {
-                  // Update existing
-                  const updated = [...prev]
-                  updated[existing] = newRecord
-                  return updated
-                } else {
-                  // Add new
-                  return [newRecord, ...prev]
+              // Filter by service point if one is selected
+              if (servicePointId) {
+                const teacherName = (newRecord as any).teacher_name as string | null
+                if (!teacherName || teacherServicePointMap[teacherName] !== servicePointId) {
+                  return
                 }
+              }
+              setAttendance((prev) => {
+                const idx = prev.findIndex((r) => r.id === newRecord.id)
+                if (idx >= 0) {
+                  const updated = [...prev]
+                  updated[idx] = newRecord
+                  return updated
+                }
+                return [newRecord, ...prev]
               })
             }
           } else if (payload.eventType === 'DELETE') {
@@ -89,166 +68,225 @@ export default function RealTimeAttendance({
       )
       .subscribe()
 
-    return () => {
-      channel.unsubscribe()
-    }
-  }, [date, servicePointId])
-
-  if (loading) {
-    return (
-      <Card>
-        <CardContent className="py-12 text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4" />
-          <p>กำลังโหลดข้อมูล...</p>
-        </CardContent>
-      </Card>
-    )
-  }
+    return () => { channel.unsubscribe() }
+  }, [date, initialData, servicePointId, teacherServicePointMap])
 
   const stats = {
-    total: attendance.length,
+    total: totalStudents,
     checkedIn: attendance.filter((a) => a.check_in).length,
     checkedOut: attendance.filter((a) => a.check_out).length,
     present: attendance.filter((a) => a.check_in && !a.check_out).length,
+    absent: totalStudents - attendance.filter((a) => a.check_in).length,
   }
+
+  const checkedInPct = stats.total > 0 ? Math.round((stats.checkedIn / stats.total) * 100) : 0
 
   return (
     <div className="space-y-4">
-      {/* Statistics */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-blue-600">{stats.total}</div>
-            <div className="text-sm text-gray-600">นักเรียนทั้งหมด</div>
-          </CardContent>
-        </Card>
+      {/* Summary ring + stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard
+          icon={<Users className="w-4 h-4" />}
+          label="นักเรียนทั้งหมด"
+          value={stats.total}
+          color="blue"
+        />
+        <StatCard
+          icon={<LogIn className="w-4 h-4" />}
+          label="เช็คชื่อเข้า"
+          value={stats.checkedIn}
+          sub={`${checkedInPct}%`}
+          color="green"
+        />
+        <StatCard
+          icon={<UserCheck className="w-4 h-4" />}
+          label="อยู่ในศูนย์"
+          value={stats.present}
+          color="amber"
+        />
+        <StatCard
+          icon={<LogOut className="w-4 h-4" />}
+          label="เช็คชื่อออก"
+          value={stats.checkedOut}
+          color="violet"
+        />
+      </div>
 
-        <Card>
-          <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-green-600">
-              {stats.checkedIn}
-            </div>
-            <div className="text-sm text-gray-600">เช็คชื่อเข้า</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-orange-600">
-              {stats.present}
-            </div>
-            <div className="text-sm text-gray-600">อยู่ในศูนย์</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-purple-600">
-              {stats.checkedOut}
-            </div>
-            <div className="text-sm text-gray-600">เช็คชื่อออก</div>
-          </CardContent>
-        </Card>
+      {/* Progress bar */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm text-gray-500">อัตราเช็คชื่อเข้า</span>
+          <span className="text-sm font-semibold text-gray-900">{stats.checkedIn}/{stats.total}</span>
+        </div>
+        <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-cyan-400 to-green-400 rounded-full transition-all duration-500"
+            style={{ width: `${checkedInPct}%` }}
+          />
+        </div>
+        {stats.absent > 0 && (
+          <p className="text-xs text-gray-400 mt-2">ยังไม่เช็คชื่อ {stats.absent} คน</p>
+        )}
       </div>
 
       {/* Attendance list */}
-      <Card>
-        <CardHeader>
-          <CardTitle>รายการเช็คชื่อวันนี้</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {attendance.length === 0 ? (
-            <p className="text-center text-gray-500 py-8">
-              ยังไม่มีการเช็คชื่อ
-            </p>
-          ) : (
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {attendance.map((record) => (
-                <div
-                  key={record.id}
-                  className="border rounded-lg p-3 flex items-center justify-between"
-                >
-                  <div className="flex-1">
-                    <div className="font-medium">
+      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+          <h2 className="font-semibold text-gray-900">
+            รายการเช็คชื่อวันนี้
+          </h2>
+          <span className="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded-full">
+            {attendance.length} รายการ
+          </span>
+        </div>
+
+        {attendance.length === 0 ? (
+          <div className="py-16 text-center">
+            <Clock className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+            <p className="text-gray-400">ยังไม่มีการเช็คชื่อ</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-50 max-h-[28rem] overflow-y-auto">
+            {attendance.map((record) => (
+              <div key={record.id} className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50/50 transition-colors">
+                {/* Avatar */}
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100">
+                  <User className="w-4 h-4 text-gray-400" />
+                </div>
+
+                {/* Name + meta */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-gray-900 text-sm truncate">
                       {record.student?.name || 'Unknown'}
-                    </div>
+                    </span>
                     {record.student?.nickname && (
-                      <div className="text-sm text-gray-500">
-                        ({record.student.nickname})
-                      </div>
+                      <span className="text-xs text-gray-400 truncate">({record.student.nickname})</span>
                     )}
                   </div>
-
-                  <div className="flex items-center gap-4">
-                    {/* Check-in status */}
-                    <div className="text-right">
-                      {record.check_in ? (
-                        <div className="flex items-center gap-1 text-green-600">
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span className="text-sm">
-                            {new Date(record.check_in).toLocaleTimeString('th-TH', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1 text-gray-400">
-                          <Clock className="w-4 h-4" />
-                          <span className="text-sm">-</span>
-                        </div>
-                      )}
-                      <div className="text-xs text-gray-500">เข้า</div>
-                    </div>
-
-                    {/* Check-out status */}
-                    <div className="text-right">
-                      {record.check_out ? (
-                        <div className="flex items-center gap-1 text-purple-600">
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span className="text-sm">
-                            {new Date(record.check_out).toLocaleTimeString('th-TH', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1 text-gray-400">
-                          <Clock className="w-4 h-4" />
-                          <span className="text-sm">-</span>
-                        </div>
-                      )}
-                      <div className="text-xs text-gray-500">ออก</div>
-                    </div>
-
-                    {/* Method indicator */}
+                  <div className="flex items-center gap-3 mt-0.5">
+                    {/* Teacher */}
+                    {(record as any).teacher_name && (
+                      <span className="text-xs text-gray-400 flex items-center gap-1">
+                        <User className="w-3 h-3" />
+                        {(record as any).teacher_name}
+                      </span>
+                    )}
+                    {/* Method badge */}
                     {record.method_in && (
-                      <div className="text-xs">
-                        {record.method_in === 'auto' && (
-                          <span className="bg-green-100 text-green-800 px-2 py-1 rounded">
-                            อัตโนมัติ
-                          </span>
-                        )}
-                        {record.method_in === 'suggestion' && (
-                          <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                            แนะนำ
-                          </span>
-                        )}
-                        {record.method_in === 'manual' && (
-                          <span className="bg-gray-100 text-gray-800 px-2 py-1 rounded">
-                            เลือกเอง
-                          </span>
-                        )}
-                      </div>
+                      <MethodBadge method={record.method_in} />
                     )}
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+
+                {/* Time columns */}
+                <div className="flex items-center gap-4 shrink-0">
+                  <TimeCell
+                    time={record.check_in}
+                    label="เข้า"
+                    color="green"
+                  />
+                  <TimeCell
+                    time={record.check_out}
+                    label="ออก"
+                    color="violet"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
+  )
+}
+
+// --- Sub-components ---
+
+function StatCard({
+  icon,
+  label,
+  value,
+  sub,
+  color,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: number
+  sub?: string
+  color: 'blue' | 'green' | 'amber' | 'violet'
+}) {
+  const colors = {
+    blue: { bg: 'bg-blue-50', icon: 'text-blue-500', value: 'text-blue-600' },
+    green: { bg: 'bg-green-50', icon: 'text-green-500', value: 'text-green-600' },
+    amber: { bg: 'bg-amber-50', icon: 'text-amber-500', value: 'text-amber-600' },
+    violet: { bg: 'bg-violet-50', icon: 'text-violet-500', value: 'text-violet-600' },
+  }
+  const c = colors[color]
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl p-4">
+      <div className={`inline-flex items-center justify-center w-8 h-8 rounded-xl ${c.bg} ${c.icon} mb-3`}>
+        {icon}
+      </div>
+      <div className="flex items-baseline gap-1.5">
+        <span className={`text-2xl font-bold ${c.value}`}>{value}</span>
+        {sub && <span className="text-xs text-gray-400">{sub}</span>}
+      </div>
+      <div className="text-xs text-gray-400 mt-0.5">{label}</div>
+    </div>
+  )
+}
+
+function TimeCell({
+  time,
+  label,
+  color,
+}: {
+  time: string | null
+  label: string
+  color: 'green' | 'violet'
+}) {
+  const iconColor = color === 'green' ? 'text-green-500' : 'text-violet-500'
+
+  return (
+    <div className="text-right min-w-[3.5rem]">
+      {time ? (
+        <div className={`flex items-center gap-1 justify-end ${iconColor}`}>
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          <span className="text-xs font-medium">
+            {new Date(time).toLocaleTimeString('th-TH', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </span>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1 justify-end text-gray-300">
+          <Clock className="w-3.5 h-3.5" />
+          <span className="text-xs">-</span>
+        </div>
+      )}
+      <div className="text-[10px] text-gray-400">{label}</div>
+    </div>
+  )
+}
+
+function MethodBadge({ method }: { method: string }) {
+  const styles: Record<string, string> = {
+    auto: 'bg-green-50 text-green-700 border-green-200',
+    suggestion: 'bg-blue-50 text-blue-700 border-blue-200',
+    manual: 'bg-gray-50 text-gray-600 border-gray-200',
+  }
+  const labels: Record<string, string> = {
+    auto: 'อัตโนมัติ',
+    suggestion: 'แนะนำ',
+    manual: 'เลือกเอง',
+  }
+
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${styles[method] || styles.manual}`}>
+      {labels[method] || method}
+    </span>
   )
 }

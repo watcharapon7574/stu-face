@@ -29,7 +29,7 @@ export async function POST(
 
     // ดึงข้อมูลนักเรียนที่อัพเดตแล้ว
     const { data: student, error: fetchError } = await supabaseServer
-      .from('students')
+      .from('std_students')
       .select('*')
       .eq('id', id)
       .single()
@@ -39,7 +39,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       student,
-      embeddings_count: student.embeddings.length
+      embeddings_count: (student.face_embeddings as any[])?.length ?? 0
     })
   } catch (error) {
     console.error('Error adding embedding:', error)
@@ -75,8 +75,8 @@ export async function PUT(
     }
 
     const { data, error } = await supabaseServer
-      .from('students')
-      .update({ embeddings })
+      .from('std_students')
+      .update({ face_embeddings: embeddings })
       .eq('id', id)
       .select()
       .single()
@@ -86,7 +86,7 @@ export async function PUT(
     return NextResponse.json({
       success: true,
       student: data,
-      embeddings_count: data.embeddings.length
+      embeddings_count: (data.face_embeddings as any[])?.length ?? 0
     })
   } catch (error) {
     console.error('Error updating embeddings:', error)

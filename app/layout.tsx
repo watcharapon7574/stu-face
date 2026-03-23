@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import NavMenu from '@/components/ui/nav-menu'
+import SwRegister from '@/components/pwa/sw-register'
 
 export const metadata: Metadata = {
   title: 'ระบบเช็คชื่อศูนย์การศึกษาพิเศษ',
@@ -19,7 +21,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="th">
-      <body>{children}</body>
+      <body>
+        <NavMenu />
+        {children}
+        <SwRegister />
+      </body>
     </html>
   )
 }

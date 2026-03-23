@@ -1,12 +1,13 @@
 'use client'
 
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Camera, CheckCircle2, XCircle } from 'lucide-react'
-import { detectFaces, initializeHuman, findBestMatches } from '@/lib/face-detection'
+import { Camera } from 'lucide-react'
+import { detectFaces, initializeHuman, findBestMatches, getFaceTriangulation } from '@/lib/face-detection'
 import { CONFIDENCE_THRESHOLD } from '@/types/database'
 import type { Student, AttendanceMethod } from '@/types/database'
+import FaceMeshOverlay from './face-mesh-overlay'
 
 interface FaceRecognitionProps {
   students: Student[]
@@ -23,6 +24,7 @@ export default function FaceRecognition({
 }: FaceRecognitionProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [isScanning, setIsScanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -31,6 +33,12 @@ export default function FaceRecognition({
     student: Student
     confidence: number
   }> | null>(null)
+  const [meshPoints, setMeshPoints] = useState<[number, number, number][]>([])
+  const [videoDimensions, setVideoDimensions] = useState({ w: 640, h: 480 })
+  const [containerSize, setContainerSize] = useState({ w: 640, h: 480 })
+  const [triangulation, setTriangulation] = useState<number[]>([])
+  const [isLiveTracking, setIsLiveTracking] = useState(true)
+  const liveTrackingRef = useRef(false)
 
   // Initialize camera and Human library
   useEffect(() => {
@@ -39,7 +47,10 @@ export default function FaceRecognition({
     async function init() {
       try {
         await initializeHuman()
-        if (mounted) setHumanReady(true)
+        if (mounted) {
+          setHumanReady(true)
+          setTriangulation(getFaceTriangulation())
+        }
 
         const mediaStream = await navigator.mediaDevices.getUserMedia({
           video: {
@@ -73,6 +84,67 @@ export default function FaceRecognition({
     }
   }, [])
 
+  // Update container size on resize
+  useEffect(() => {
+    const updateSize = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect()
+        setContainerSize({ w: rect.width, h: rect.height })
+      }
+    }
+    updateSize()
+    window.addEventListener('resize', updateSize)
+    return () => window.removeEventListener('resize', updateSize)
+  }, [])
+
+  // Update video dimensions when metadata loads
+  const handleVideoMetadata = () => {
+    if (videoRef.current) {
+      setVideoDimensions({
+        w: videoRef.current.videoWidth,
+        h: videoRef.current.videoHeight,
+      })
+      // Update container size too
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect()
+        setContainerSize({ w: rect.width, h: rect.height })
+      }
+    }
+  }
+
+  // Live face tracking loop
+  const trackFace = useCallback(async () => {
+    if (!liveTrackingRef.current || !videoRef.current || !humanReady) return
+
+    try {
+      const video = videoRef.current
+      const { faces } = await detectFaces(video)
+
+      if (faces.length > 0 && faces[0].mesh) {
+        setMeshPoints(faces[0].mesh as [number, number, number][])
+      } else {
+        setMeshPoints([])
+      }
+    } catch {
+      // ignore tracking errors
+    }
+
+    if (liveTrackingRef.current) {
+      setTimeout(trackFace, 42) // ~24fps
+    }
+  }, [humanReady])
+
+  // Start/stop live tracking
+  useEffect(() => {
+    liveTrackingRef.current = isLiveTracking
+    if (isLiveTracking && humanReady) {
+      trackFace()
+    }
+    if (!isLiveTracking) {
+      setMeshPoints([])
+    }
+  }, [isLiveTracking, humanReady, trackFace])
+
   const scanFace = async () => {
     if (!videoRef.current || !canvasRef.current || !humanReady) return
 
@@ -93,7 +165,12 @@ export default function FaceRecognition({
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
 
       // Detect face
-      const { embeddings } = await detectFaces(canvas)
+      const { embeddings, faces } = await detectFaces(canvas)
+
+      // Show mesh from scan result
+      if (faces.length > 0 && faces[0].mesh) {
+        setMeshPoints(faces[0].mesh as [number, number, number][])
+      }
 
       if (embeddings.length === 0) {
         setError('ไม่พบใบหน้า กรุณาลองอีกครั้ง')
@@ -152,53 +229,94 @@ export default function FaceRecognition({
 
   return (
     <div className="space-y-4">
-      <Card>
+      <Card className="bg-gray-950 border-cyan-900/50">
         <CardContent className="p-4">
           {/* Video preview */}
-          <div className="relative aspect-video bg-black rounded-lg overflow-hidden mb-4">
+          <div
+            ref={containerRef}
+            className="relative aspect-video bg-black rounded-lg overflow-hidden mb-4 border border-cyan-900/30"
+          >
             <video
               ref={videoRef}
               autoPlay
               playsInline
               muted
               className="w-full h-full object-cover"
+              onLoadedMetadata={handleVideoMetadata}
             />
             <canvas ref={canvasRef} className="hidden" />
 
-            {/* Face guide overlay */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="border-4 border-white/50 rounded-full w-48 h-48 md:w-64 md:h-64" />
+            {/* Face mesh overlay */}
+            {meshPoints.length > 0 && (
+              <FaceMeshOverlay
+                mesh={meshPoints}
+                triangulation={triangulation}
+                videoWidth={videoDimensions.w}
+                videoHeight={videoDimensions.h}
+                containerWidth={containerSize.w}
+                containerHeight={containerSize.h}
+              />
+            )}
+
+            {/* Corner brackets (HUD style) */}
+            <div className="absolute inset-4 pointer-events-none">
+              <div className="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-cyan-400/60" />
+              <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-cyan-400/60" />
+              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-cyan-400/60" />
+              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-cyan-400/60" />
             </div>
 
             {/* Status indicator */}
             {isScanning && (
-              <div className="absolute top-4 right-4 bg-blue-500 text-white px-3 py-1 rounded-full text-sm">
-                กำลังสแกน...
+              <div className="absolute top-4 right-12 bg-cyan-500/90 text-white px-3 py-1 rounded-full text-sm font-mono animate-pulse">
+                SCANNING...
+              </div>
+            )}
+
+            {isLiveTracking && !isScanning && (
+              <div className="absolute top-4 right-12 flex items-center gap-2 bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm font-mono border border-green-500/40">
+                <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                LIVE
               </div>
             )}
           </div>
 
           {/* Error message */}
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded mb-4">
+            <div className="bg-red-950/50 border border-red-500/30 text-red-400 px-4 py-3 rounded mb-4 font-mono text-sm">
               {error}
             </div>
           )}
 
-          {/* Scan button */}
-          <Button
-            onClick={scanFace}
-            disabled={isScanning || !humanReady}
-            className="w-full"
-            size="lg"
-          >
-            <Camera className="w-5 h-5 mr-2" />
-            {isScanning ? 'กำลังจดจำใบหน้า...' : `สแกนใบหน้า${type === 'check_in' ? 'เข้า' : 'ออก'}`}
-          </Button>
+          {/* Controls */}
+          <div className="flex gap-2">
+            <Button
+              onClick={scanFace}
+              disabled={isScanning || !humanReady}
+              className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white"
+              size="lg"
+            >
+              <Camera className="w-5 h-5 mr-2" />
+              {isScanning ? 'กำลังจดจำ...' : `สแกน${type === 'check_in' ? 'เข้า' : 'ออก'}`}
+            </Button>
+
+            <Button
+              onClick={() => setIsLiveTracking(!isLiveTracking)}
+              variant={isLiveTracking ? 'default' : 'outline'}
+              className={isLiveTracking
+                ? 'bg-green-600 hover:bg-green-700 text-white'
+                : 'border-cyan-700 text-cyan-400 hover:bg-cyan-950'
+              }
+              size="lg"
+              disabled={!humanReady}
+            >
+              {isLiveTracking ? 'LIVE ON' : 'LIVE'}
+            </Button>
+          </div>
 
           {!humanReady && (
-            <p className="text-sm text-center text-gray-500 mt-2">
-              กำลังโหลดระบบจดจำใบหน้า...
+            <p className="text-sm text-center text-cyan-500/70 mt-2 font-mono">
+              Loading face recognition engine...
             </p>
           )}
 
@@ -206,7 +324,7 @@ export default function FaceRecognition({
           <Button
             onClick={onManualSelect}
             variant="outline"
-            className="w-full mt-2"
+            className="w-full mt-2 border-gray-700 text-gray-400 hover:bg-gray-900"
           >
             เลือกนักเรียนเอง
           </Button>
@@ -215,18 +333,18 @@ export default function FaceRecognition({
 
       {/* Suggestions */}
       {suggestions && suggestions.length > 0 && (
-        <Card>
+        <Card className="bg-gray-950 border-cyan-900/50">
           <CardContent className="p-4">
-            <h3 className="font-semibold mb-3">เลือกนักเรียนที่ถูกต้อง</h3>
+            <h3 className="font-semibold mb-3 text-cyan-400 font-mono">เลือกนักเรียนที่ถูกต้อง</h3>
             <div className="space-y-2">
               {suggestions.map((match) => (
                 <button
                   key={match.student.id}
                   onClick={() => selectSuggestion(match.student.id, match.confidence)}
-                  className="w-full p-3 border rounded-lg hover:bg-gray-50 text-left flex items-center justify-between"
+                  className="w-full p-3 border border-cyan-900/40 rounded-lg hover:bg-cyan-950/50 text-left flex items-center justify-between transition-colors"
                 >
                   <div>
-                    <div className="font-medium">{match.student.name}</div>
+                    <div className="font-medium text-white">{match.student.name}</div>
                     {match.student.nickname && (
                       <div className="text-sm text-gray-500">
                         ({match.student.nickname})
@@ -234,10 +352,10 @@ export default function FaceRecognition({
                     )}
                   </div>
                   <div className="text-right">
-                    <div className="text-sm font-medium">
-                      {(match.confidence * 100).toFixed(0)}%
+                    <div className="text-sm font-mono font-bold text-cyan-400">
+                      {(match.confidence * 100).toFixed(1)}%
                     </div>
-                    <div className="text-xs text-gray-500">ความมั่นใจ</div>
+                    <div className="text-xs text-gray-600">confidence</div>
                   </div>
                 </button>
               ))}
@@ -246,7 +364,7 @@ export default function FaceRecognition({
             <Button
               onClick={onManualSelect}
               variant="outline"
-              className="w-full mt-3"
+              className="w-full mt-3 border-gray-700 text-gray-400 hover:bg-gray-900"
             >
               ไม่มีในรายการ - เลือกเอง
             </Button>

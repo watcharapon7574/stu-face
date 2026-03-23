@@ -8,21 +8,17 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const date = searchParams.get('date')
     const studentId = searchParams.get('student_id')
-    const servicePointId = searchParams.get('service_point_id')
+    const servicePoint = searchParams.get('service_point')
 
     let query = supabaseServer
-      .from('attendance')
+      .from('std_attendance')
       .select(`
         *,
         student:student_id (
           id,
           name,
           nickname,
-          service_point_id
-        ),
-        teacher:teacher_id (
-          id,
-          name
+          service_point
         )
       `)
       .order('date', { ascending: false })
@@ -42,9 +38,9 @@ export async function GET(request: Request) {
 
     // Filter by service point if provided
     let filteredData = data
-    if (servicePointId) {
+    if (servicePoint) {
       filteredData = data?.filter(
-        (record) => record.student?.service_point_id === servicePointId
+        (record: any) => record.student?.service_point === servicePoint
       )
     }
 
@@ -64,18 +60,20 @@ export async function POST(request: Request) {
     const body = await request.json()
     const {
       student_id,
-      teacher_id,
+      teacher_name,
       date,
       type, // 'check_in' | 'check_out'
       confidence,
       method,
+      service_point_id,
     } = body as {
       student_id: string
-      teacher_id?: string
+      teacher_name?: string
       date: string
       type: 'check_in' | 'check_out'
       confidence?: number
       method: AttendanceMethod
+      service_point_id?: string
     }
 
     if (!student_id || !date || !type) {
@@ -89,7 +87,7 @@ export async function POST(request: Request) {
 
     // Check if attendance record exists for this student on this date
     const { data: existing } = await supabaseServer
-      .from('attendance')
+      .from('std_attendance')
       .select('*')
       .eq('student_id', student_id)
       .eq('date', date)
@@ -101,18 +99,17 @@ export async function POST(request: Request) {
       // Update existing record
       if (type === 'check_in') {
         const { data, error } = await supabaseServer
-          .from('attendance')
+          .from('std_attendance')
           .update({
             check_in: now,
             confidence_in: confidence,
             method_in: method,
-            teacher_id: teacher_id || existing.teacher_id,
+            teacher_name: teacher_name || existing.teacher_name,
           })
           .eq('id', existing.id)
           .select(`
             *,
-            student:student_id (*),
-            teacher:teacher_id (*)
+            student:student_id (*)
           `)
           .single()
 
@@ -120,7 +117,7 @@ export async function POST(request: Request) {
         result = data
       } else {
         const { data, error } = await supabaseServer
-          .from('attendance')
+          .from('std_attendance')
           .update({
             check_out: now,
             confidence_out: confidence,
@@ -129,8 +126,7 @@ export async function POST(request: Request) {
           .eq('id', existing.id)
           .select(`
             *,
-            student:student_id (*),
-            teacher:teacher_id (*)
+            student:student_id (*)
           `)
           .single()
 
@@ -141,8 +137,9 @@ export async function POST(request: Request) {
       // Create new record
       const insertData: any = {
         student_id,
-        teacher_id,
+        teacher_name,
         date,
+        service_point_id: service_point_id || null,
       }
 
       if (type === 'check_in') {
@@ -156,12 +153,11 @@ export async function POST(request: Request) {
       }
 
       const { data, error } = await supabaseServer
-        .from('attendance')
+        .from('std_attendance')
         .insert(insertData)
         .select(`
           *,
-          student:student_id (*),
-          teacher:teacher_id (*)
+          student:student_id (*)
         `)
         .single()
 
