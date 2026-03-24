@@ -528,7 +528,7 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
     <div className="max-w-2xl mx-auto flex flex-col min-h-[calc(100vh-4rem)]">
       {/* Header */}
       <div className="flex items-center justify-center gap-3">
-        <img src="/std.png" alt="Logo" className="w-10 h-10 object-contain" />
+        <img src="/std2.png" alt="Logo" className="w-10 h-10 object-contain" />
         <div className="text-left">
           <h1 className="text-lg font-bold text-gray-900 leading-tight">เช็คชื่อนักเรียน</h1>
           <p className="text-xs text-gray-400">ศูนย์การศึกษาพิเศษ เขต 6 ลพบุรี</p>
