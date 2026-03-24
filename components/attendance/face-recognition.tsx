@@ -24,7 +24,6 @@ export default function FaceRecognition({
 }: FaceRecognitionProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [isScanning, setIsScanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -34,8 +33,7 @@ export default function FaceRecognition({
     confidence: number
   }> | null>(null)
   const [meshPoints, setMeshPoints] = useState<[number, number, number][]>([])
-  const [videoDimensions, setVideoDimensions] = useState({ w: 640, h: 480 })
-  const [containerSize, setContainerSize] = useState({ w: 640, h: 480 })
+  const [videoDimensions, setVideoDimensions] = useState({ w: 480, h: 640 })
   const [triangulation, setTriangulation] = useState<number[]>([])
   const [isLiveTracking, setIsLiveTracking] = useState(true)
   const liveTrackingRef = useRef(false)
@@ -84,19 +82,6 @@ export default function FaceRecognition({
     }
   }, [])
 
-  // Update container size on resize
-  useEffect(() => {
-    const updateSize = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect()
-        setContainerSize({ w: rect.width, h: rect.height })
-      }
-    }
-    updateSize()
-    window.addEventListener('resize', updateSize)
-    return () => window.removeEventListener('resize', updateSize)
-  }, [])
-
   // Update video dimensions when metadata loads
   const handleVideoMetadata = () => {
     if (videoRef.current) {
@@ -104,11 +89,6 @@ export default function FaceRecognition({
         w: videoRef.current.videoWidth,
         h: videoRef.current.videoHeight,
       })
-      // Update container size too
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect()
-        setContainerSize({ w: rect.width, h: rect.height })
-      }
     }
   }
 
@@ -233,7 +213,6 @@ export default function FaceRecognition({
         <CardContent className="p-4">
           {/* Video preview */}
           <div
-            ref={containerRef}
             className="relative aspect-[3/4] bg-black rounded-lg overflow-hidden mb-4 border border-cyan-900/30"
           >
             <video
@@ -253,8 +232,6 @@ export default function FaceRecognition({
                 triangulation={triangulation}
                 videoWidth={videoDimensions.w}
                 videoHeight={videoDimensions.h}
-                containerWidth={containerSize.w}
-                containerHeight={containerSize.h}
               />
             )}
 

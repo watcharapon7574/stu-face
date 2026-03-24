@@ -7,8 +7,6 @@ interface FaceMeshOverlayProps {
   triangulation: number[]
   videoWidth: number
   videoHeight: number
-  containerWidth: number
-  containerHeight: number
 }
 
 export default function FaceMeshOverlay({
@@ -16,29 +14,25 @@ export default function FaceMeshOverlay({
   triangulation,
   videoWidth,
   videoHeight,
-  containerWidth,
-  containerHeight,
 }: FaceMeshOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas || mesh.length === 0) return
+    if (!canvas || mesh.length === 0 || !videoWidth || !videoHeight) return
 
-    canvas.width = containerWidth
-    canvas.height = containerHeight
+    // Canvas matches video pixel dimensions exactly
+    canvas.width = videoWidth
+    canvas.height = videoHeight
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const scaleX = containerWidth / videoWidth
-    const scaleY = containerHeight / videoHeight
+    ctx.clearRect(0, 0, videoWidth, videoHeight)
 
-    ctx.clearRect(0, 0, containerWidth, containerHeight)
-
-    // Draw tessellation mesh — single beginPath(), very fast
+    // Draw tessellation mesh — single beginPath, very fast
     if (triangulation.length > 0) {
       ctx.beginPath()
-      ctx.strokeStyle = 'rgba(0, 255, 255, 0.3)'
+      ctx.strokeStyle = 'rgba(0, 255, 255, 0.25)'
       ctx.lineWidth = 0.5
 
       for (let i = 0; i < triangulation.length; i += 3) {
@@ -47,24 +41,15 @@ export default function FaceMeshOverlay({
         const c = mesh[triangulation[i + 2]]
         if (!a || !b || !c) continue
 
-        const ax = a[0] * scaleX, ay = a[1] * scaleY
-        const bx = b[0] * scaleX, by = b[1] * scaleY
-        const cx = c[0] * scaleX, cy = c[1] * scaleY
-
-        ctx.moveTo(ax, ay)
-        ctx.lineTo(bx, by)
-        ctx.lineTo(cx, cy)
-        ctx.lineTo(ax, ay)
+        ctx.moveTo(a[0], a[1])
+        ctx.lineTo(b[0], b[1])
+        ctx.lineTo(c[0], c[1])
+        ctx.lineTo(a[0], a[1])
       }
 
       ctx.stroke()
     }
-
-    // HUD text
-    ctx.font = '11px monospace'
-    ctx.fillStyle = 'rgba(0, 255, 200, 0.7)'
-    ctx.fillText(`MESH: ${mesh.length} pts`, 10, 20)
-  }, [mesh, triangulation, videoWidth, videoHeight, containerWidth, containerHeight])
+  }, [mesh, triangulation, videoWidth, videoHeight])
 
   return (
     <canvas
