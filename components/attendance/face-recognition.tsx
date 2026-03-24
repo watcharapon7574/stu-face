@@ -55,8 +55,8 @@ export default function FaceRecognition({
         const mediaStream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: 'user',
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
+            width: { ideal: 480 },
+            height: { ideal: 640 },
           },
         })
 
@@ -234,7 +234,7 @@ export default function FaceRecognition({
           {/* Video preview */}
           <div
             ref={containerRef}
-            className="relative aspect-video bg-black rounded-lg overflow-hidden mb-4 border border-cyan-900/30"
+            className="relative aspect-[3/4] bg-black rounded-lg overflow-hidden mb-4 border border-cyan-900/30"
           >
             <video
               ref={videoRef}
