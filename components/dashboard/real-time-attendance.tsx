@@ -10,6 +10,8 @@ interface RealTimeAttendanceProps {
   initialData?: AttendanceWithRelations[]
   totalStudents?: number
   servicePointId?: string
+  servicePointName?: string
+  isHeadquarters?: boolean
   teacherServicePointMap?: Record<string, string>
 }
 
@@ -18,6 +20,8 @@ export default function RealTimeAttendance({
   initialData = [],
   totalStudents = 0,
   servicePointId,
+  servicePointName,
+  isHeadquarters = true,
   teacherServicePointMap = {},
 }: RealTimeAttendanceProps) {
   const [attendance, setAttendance] = useState<AttendanceWithRelations[]>(initialData)
@@ -80,9 +84,18 @@ export default function RealTimeAttendance({
   }
 
   const checkedInPct = stats.total > 0 ? Math.round((stats.checkedIn / stats.total) * 100) : 0
+  const placeLabel = !servicePointId ? 'อยู่ในศูนย์/หน่วย' : isHeadquarters ? 'อยู่ในศูนย์' : 'อยู่ในหน่วย'
 
   return (
     <div className="space-y-4">
+      {/* Service point name header */}
+      {servicePointName && (
+        <div className="flex items-center gap-2">
+          <MapPin className="w-4 h-4 text-cyan-500" />
+          <span className="text-sm font-medium text-gray-700">{servicePointName}</span>
+        </div>
+      )}
+
       {/* Summary ring + stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard
@@ -100,7 +113,7 @@ export default function RealTimeAttendance({
         />
         <StatCard
           icon={<UserCheck className="w-4 h-4" />}
-          label="อยู่ในศูนย์"
+          label={placeLabel}
           value={stats.present}
           color="amber"
         />

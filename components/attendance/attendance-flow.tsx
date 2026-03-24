@@ -1,13 +1,15 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import FaceRecognition from '@/components/attendance/face-recognition'
-import { CheckCircle2, LogIn, LogOut, Sun, Moon, Clock, MapPin, Loader2, AlertTriangle, User, X } from 'lucide-react'
+import { CheckCircle2, LogIn, LogOut, Sun, Moon, Clock, MapPin, Loader2, AlertTriangle, User, X, RefreshCw, Camera } from 'lucide-react'
 import type { Student, AttendanceMethod } from '@/types/database'
 import { getCurrentPosition, findNearestServicePoint, findClosestServicePoint, type ServicePoint } from '@/lib/geolocation'
 import { getSavedTeacher, saveTeacher, clearTeacher, type SavedTeacher } from '@/lib/teacher-store'
+import { detectFaces, initializeHuman } from '@/lib/face-detection'
+import type { FaceEmbedding } from '@/types/database'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 
@@ -293,6 +295,147 @@ function AttendanceSelect({
   )
 }
 
+// --- Update Face Flow ---
+function UpdateFaceFlow({
+  student,
+  onDone,
+  onCancel,
+}: {
+  student: Student
+  onDone: () => void
+  onCancel: () => void
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [stream, setStream] = useState<MediaStream | null>(null)
+  const [captured, setCaptured] = useState(0)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [embeddings, setEmbeddings] = useState<FaceEmbedding[]>([])
+  const target = 3
+
+  useEffect(() => {
+    let mounted = true
+    async function init() {
+      await initializeHuman()
+      const ms = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+      })
+      if (mounted && videoRef.current) {
+        setStream(ms)
+        videoRef.current.srcObject = ms
+      }
+    }
+    init().catch(() => setError('ไม่สามารถเปิดกล้องได้'))
+    return () => {
+      mounted = false
+      stream?.getTracks().forEach((t) => t.stop())
+    }
+  }, [])
+
+  const capture = async () => {
+    if (!videoRef.current) return
+    setError('')
+    const canvas = document.createElement('canvas')
+    canvas.width = videoRef.current.videoWidth
+    canvas.height = videoRef.current.videoHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.drawImage(videoRef.current, 0, 0)
+
+    const { embeddings: embs } = await detectFaces(canvas)
+    if (embs.length === 0) {
+      setError('ไม่พบใบหน้า ลองอีกครั้ง')
+      return
+    }
+    if (embs.length > 1) {
+      setError('พบมากกว่า 1 ใบหน้า')
+      return
+    }
+
+    const next = [...embeddings, embs[0]]
+    setEmbeddings(next)
+    setCaptured(next.length)
+
+    if (next.length >= target) {
+      // Save embeddings
+      setSaving(true)
+      try {
+        const res = await fetch(`/api/students/${student.id}/embeddings`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ embeddings: next }),
+        })
+        if (!res.ok) throw new Error('Failed')
+        stream?.getTracks().forEach((t) => t.stop())
+        onDone()
+      } catch {
+        setError('บันทึกไม่สำเร็จ')
+        setSaving(false)
+      }
+    }
+  }
+
+  return (
+    <div className="mt-4 space-y-4">
+      <Card className="border-gray-200">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-gray-900 text-lg flex items-center gap-2">
+            <RefreshCw className="w-5 h-5 text-cyan-500" />
+            อัปเดตใบหน้า
+          </CardTitle>
+          <p className="text-sm text-gray-500">{student.name} {student.nickname ? `(${student.nickname})` : ''}</p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="relative aspect-video bg-black rounded-xl overflow-hidden">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="border-2 border-white/40 rounded-full w-40 h-40" />
+            </div>
+          </div>
+
+          {/* Progress */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-cyan-500 rounded-full transition-all duration-300"
+                style={{ width: `${(captured / target) * 100}%` }}
+              />
+            </div>
+            <span className="text-sm text-gray-500 tabular-nums">{captured}/{target}</span>
+          </div>
+
+          {error && (
+            <p className="text-sm text-red-600 text-center">{error}</p>
+          )}
+
+          <Button
+            onClick={capture}
+            disabled={saving || captured >= target}
+            className="w-full"
+            size="lg"
+          >
+            {saving ? (
+              <><Loader2 className="w-4 h-4 animate-spin mr-2" /> กำลังบันทึก...</>
+            ) : (
+              <><Camera className="w-5 h-5 mr-2" /> ถ่ายรูป ({captured}/{target})</>
+            )}
+          </Button>
+
+          <Button onClick={onCancel} variant="outline" className="w-full">
+            ยกเลิก
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 // --- Main ---
 interface AttendanceFlowProps {
   students: Student[]
@@ -300,9 +443,10 @@ interface AttendanceFlowProps {
 }
 
 export default function AttendanceFlow({ students, servicePoints }: AttendanceFlowProps) {
-  const [mode, setMode] = useState<'select' | 'pick_teacher' | 'face' | 'manual' | 'success'>('select')
+  const [mode, setMode] = useState<'select' | 'pick_teacher' | 'face' | 'manual' | 'update_face' | 'success'>('select')
   const [attendanceType, setAttendanceType] = useState<'check_in' | 'check_out'>('check_in')
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
+  const [updatingStudent, setUpdatingStudent] = useState<Student | null>(null)
   const [teacher, setTeacher] = useState<SavedTeacher | null>(null)
   const { status, matched, closest } = useLocationDetection(servicePoints)
 
@@ -383,9 +527,12 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
   return (
     <div className="max-w-2xl mx-auto flex flex-col min-h-[calc(100vh-4rem)]">
       {/* Header */}
-      <div className="text-center">
-        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">เช็คชื่อนักเรียน</h1>
-        <p className="text-sm text-gray-400 mt-1">ศูนย์การศึกษาพิเศษ เขต 6 ลพบุรี</p>
+      <div className="flex items-center justify-center gap-3">
+        <img src="/std.png" alt="Logo" className="w-10 h-10 object-contain" />
+        <div className="text-left">
+          <h1 className="text-lg font-bold text-gray-900 leading-tight">เช็คชื่อนักเรียน</h1>
+          <p className="text-xs text-gray-400">ศูนย์การศึกษาพิเศษ เขต 6 ลพบุรี</p>
+        </div>
       </div>
 
       {/* Badges row */}
@@ -483,24 +630,47 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
 
       {/* Manual selection mode */}
       {mode === 'manual' && (
-        <div className="mt-4">
+        <div className="mt-4 space-y-3">
+          {/* Suggestion to update face */}
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
+            <RefreshCw className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm text-amber-800 font-medium">สแกนไม่ผ่าน?</p>
+              <p className="text-xs text-amber-600 mt-0.5">เลือกชื่อนักเรียนเพื่อเช็คชื่อ หรือกดปุ่มกล้องเพื่ออัปเดตใบหน้าใหม่</p>
+            </div>
+          </div>
+
           <Card className="border-gray-200">
-            <CardHeader>
+            <CardHeader className="pb-2">
               <CardTitle className="text-gray-900">เลือกนักเรียน</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2 max-h-96 overflow-y-auto">
+              <div className="space-y-1.5 max-h-96 overflow-y-auto">
                 {students.map((student) => (
-                  <button
+                  <div
                     key={student.id}
-                    onClick={() => handleManualSelectStudent(student)}
-                    className="w-full p-3 border border-gray-200 rounded-xl hover:bg-gray-50 text-left transition-colors"
+                    className="flex items-center gap-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
                   >
-                    <div className="font-medium text-gray-900">{student.name}</div>
-                    {student.nickname && (
-                      <div className="text-sm text-gray-400">({student.nickname})</div>
-                    )}
-                  </button>
+                    <button
+                      onClick={() => handleManualSelectStudent(student)}
+                      className="flex-1 p-3 text-left"
+                    >
+                      <div className="font-medium text-gray-900 text-sm">{student.name}</div>
+                      {student.nickname && (
+                        <div className="text-xs text-gray-400">({student.nickname})</div>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setUpdatingStudent(student)
+                        setMode('update_face')
+                      }}
+                      className="p-3 text-gray-400 hover:text-cyan-600 transition-colors"
+                      title="อัปเดตใบหน้า"
+                    >
+                      <Camera className="w-4 h-4" />
+                    </button>
+                  </div>
                 ))}
               </div>
 
@@ -514,6 +684,21 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* Update face mode */}
+      {mode === 'update_face' && updatingStudent && (
+        <UpdateFaceFlow
+          student={updatingStudent}
+          onDone={() => {
+            setUpdatingStudent(null)
+            setMode('face')
+          }}
+          onCancel={() => {
+            setUpdatingStudent(null)
+            setMode('manual')
+          }}
+        />
       )}
 
       {/* Success message */}

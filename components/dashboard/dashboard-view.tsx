@@ -84,17 +84,17 @@ export default function DashboardView({
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
-          <p className="text-sm text-gray-400 mt-0.5">ศูนย์การศึกษาพิเศษ เขต 6 ลพบุรี</p>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
+        <div className="flex items-center justify-between mt-1">
+          <p className="text-sm text-gray-400">ศูนย์การศึกษาพิเศษ เขต 6 ลพบุรี</p>
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
+          />
         </div>
-        <input
-          type="date"
-          value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
-          className="px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
-        />
       </div>
 
       {/* Service Point Filter */}
@@ -139,6 +139,8 @@ export default function DashboardView({
         initialData={filteredAttendance}
         totalStudents={selectedSP === 'all' ? totalStudents : filteredTotalStudents}
         servicePointId={selectedSP === 'all' ? undefined : selectedSP}
+        servicePointName={selectedSP === 'all' ? undefined : servicePoints.find((sp) => sp.id === selectedSP)?.short_name}
+        isHeadquarters={selectedSP === 'all' ? true : servicePoints.find((sp) => sp.id === selectedSP)?.is_headquarters ?? true}
         teacherServicePointMap={teacherServicePointMap}
       />
     </div>
