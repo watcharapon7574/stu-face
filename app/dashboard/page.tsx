@@ -56,16 +56,16 @@ export default async function DashboardPage() {
 
   const [attendanceResult, studentsResult, servicePointsResult, profilesResult] = await Promise.all([
     supabaseServer
-      .from('std_attendance')
+      .from('std_attendance' as any)
       .select('*, student:student_id (*)')
       .eq('date', today)
       .order('created_at', { ascending: false }),
     supabaseServer
-      .from('std_students')
+      .from('std_students' as any)
       .select('id, service_point')
       .eq('is_active', true),
     supabaseServer
-      .from('std_service_points')
+      .from('std_service_points' as any)
       .select('id, name, short_name, is_headquarters')
       .eq('is_active', true)
       .order('name'),

@@ -48,7 +48,7 @@ export async function GET(request: Request) {
 
     // Fetch all service points for matching
     const { data: servicePoints } = await supabaseServer
-      .from('std_service_points')
+      .from('std_service_points' as any)
       .select('id, name, short_name, is_headquarters')
       .eq('is_active', true)
 

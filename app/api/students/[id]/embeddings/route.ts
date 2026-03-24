@@ -29,7 +29,7 @@ export async function POST(
 
     // ดึงข้อมูลนักเรียนที่อัพเดตแล้ว
     const { data: student, error: fetchError } = await supabaseServer
-      .from('std_students')
+      .from('std_students' as any)
       .select('*')
       .eq('id', id)
       .single()
@@ -75,7 +75,7 @@ export async function PUT(
     }
 
     const { data, error } = await supabaseServer
-      .from('std_students')
+      .from('std_students' as any)
       .update({ face_embeddings: embeddings })
       .eq('id', id)
       .select()

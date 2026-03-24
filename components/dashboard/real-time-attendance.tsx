@@ -42,7 +42,7 @@ export default function RealTimeAttendance({
         async (payload) => {
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             const { data: newRecord } = await supabase
-              .from('std_attendance')
+              .from('std_attendance' as any)
               .select('*, student:student_id (*)')
               .eq('id', payload.new.id)
               .single()

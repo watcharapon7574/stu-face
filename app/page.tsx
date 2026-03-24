@@ -4,12 +4,12 @@ import AttendanceFlow from '@/components/attendance/attendance-flow'
 export default async function Home() {
   const [studentsResult, servicePointsResult] = await Promise.all([
     supabaseServer
-      .from('std_students')
+      .from('std_students' as any)
       .select('*')
       .eq('is_active', true)
       .order('name'),
     supabaseServer
-      .from('std_service_points')
+      .from('std_service_points' as any)
       .select('id, name, short_name, district, lat, lng, radius_meters, is_headquarters')
       .eq('is_active', true)
       .order('name'),

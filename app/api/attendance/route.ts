@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     const servicePoint = searchParams.get('service_point')
 
     let query = supabaseServer
-      .from('std_attendance')
+      .from('std_attendance' as any)
       .select(`
         *,
         student:student_id (
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
 
     // Check if attendance record exists for this student on this date
     const { data: existing } = await supabaseServer
-      .from('std_attendance')
+      .from('std_attendance' as any)
       .select('*')
       .eq('student_id', student_id)
       .eq('date', date)
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
       // Update existing record
       if (type === 'check_in') {
         const { data, error } = await supabaseServer
-          .from('std_attendance')
+          .from('std_attendance' as any)
           .update({
             check_in: now,
             confidence_in: confidence,
@@ -117,7 +117,7 @@ export async function POST(request: Request) {
         result = data
       } else {
         const { data, error } = await supabaseServer
-          .from('std_attendance')
+          .from('std_attendance' as any)
           .update({
             check_out: now,
             confidence_out: confidence,
@@ -153,7 +153,7 @@ export async function POST(request: Request) {
       }
 
       const { data, error } = await supabaseServer
-        .from('std_attendance')
+        .from('std_attendance' as any)
         .insert(insertData)
         .select(`
           *,

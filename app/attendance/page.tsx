@@ -4,7 +4,7 @@ import AttendanceFlow from '@/components/attendance/attendance-flow'
 export default async function AttendancePage() {
   // Fetch students from server
   const { data: students, error } = await supabaseServer
-    .from('std_students')
+    .from('std_students' as any)
     .select('*')
     .eq('is_active', true)
     .order('name')

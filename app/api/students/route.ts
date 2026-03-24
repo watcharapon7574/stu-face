@@ -9,7 +9,7 @@ export async function GET(request: Request) {
     const isActive = searchParams.get('is_active')
 
     let query = supabaseServer
-      .from('std_students')
+      .from('std_students' as any)
       .select('*')
       .order('name')
 
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     }
 
     const { data, error } = await supabaseServer
-      .from('std_students')
+      .from('std_students' as any)
       .insert({
         name,
         nickname,
