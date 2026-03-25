@@ -70,7 +70,7 @@ export default async function DashboardPage() {
       .eq('is_active', true)
       .order('name'),
     supabaseServer
-      .from('profiles')
+      .from('profiles' as any)
       .select('id, first_name, last_name, nickname, workplace, position')
       .not('first_name', 'eq', '')
       .order('first_name'),
