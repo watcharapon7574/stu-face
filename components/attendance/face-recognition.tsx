@@ -3,7 +3,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Camera } from 'lucide-react'
+import { Camera, SwitchCamera } from 'lucide-react'
 import { detectFaces, initializeHuman, findBestMatches, getFaceTriangulation } from '@/lib/face-detection'
 import { CONFIDENCE_THRESHOLD } from '@/types/database'
 import type { Student, AttendanceMethod } from '@/types/database'
@@ -37,6 +37,7 @@ export default function FaceRecognition({
   const [triangulation, setTriangulation] = useState<number[]>([])
   const [isLiveTracking, setIsLiveTracking] = useState(true)
   const liveTrackingRef = useRef(false)
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user')
 
   // Initialize camera and Human library
   useEffect(() => {
@@ -81,6 +82,25 @@ export default function FaceRecognition({
       }
     }
   }, [])
+
+  const switchCamera = async () => {
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop())
+    }
+    const newFacing = facingMode === 'user' ? 'environment' : 'user'
+    setFacingMode(newFacing)
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: newFacing, width: { ideal: 480 }, height: { ideal: 640 } },
+      })
+      setStream(mediaStream)
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream
+      }
+    } catch (err) {
+      console.error('Switch camera error:', err)
+    }
+  }
 
   // Update video dimensions when metadata loads
   const handleVideoMetadata = () => {
@@ -234,6 +254,14 @@ export default function FaceRecognition({
                 videoHeight={videoDimensions.h}
               />
             )}
+
+            {/* Switch camera button */}
+            <button
+              onClick={switchCamera}
+              className="absolute top-3 left-3 z-10 p-2.5 bg-black/50 hover:bg-black/70 text-white rounded-full backdrop-blur-sm transition"
+            >
+              <SwitchCamera className="w-5 h-5" />
+            </button>
 
             {/* Corner brackets (HUD style) */}
             <div className="absolute inset-4 pointer-events-none">
