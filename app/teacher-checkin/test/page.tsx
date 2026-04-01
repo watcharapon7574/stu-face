@@ -173,7 +173,7 @@ export default function TestPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          teacher_id: 'test-dry-run',
+          teacher_id: '00000000-0000-0000-0000-000000000000',
           images: [frame, frame, frame],
         }),
       })
@@ -206,7 +206,7 @@ export default function TestPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          teacher_id: 'test-dry-run',
+          teacher_id: '00000000-0000-0000-0000-000000000000',
           frames,
           check_type: 'check_in',
           date: '2024-01-01',
