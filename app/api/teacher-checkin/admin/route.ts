@@ -105,6 +105,16 @@ export async function POST(request: Request) {
       }
     }
 
+    // Update service points
+    if (body.service_points) {
+      for (const sp of body.service_points) {
+        await supabaseServer
+          .from('std_service_points' as any)
+          .update({ radius_meters: sp.radius_meters })
+          .eq('id', sp.id)
+      }
+    }
+
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Admin update error:', error)
