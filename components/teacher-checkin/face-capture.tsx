@@ -179,7 +179,7 @@ export default function FaceCapture({
             playsInline
             muted
             className="w-full h-full object-cover"
-            style={{ transform: 'none' }}
+            style={{ transform: 'scaleX(-1)' }}
           />
           <canvas ref={canvasRef} className="hidden" />
 
