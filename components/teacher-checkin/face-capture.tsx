@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ScanFace, Loader2, SwitchCamera, AlertTriangle, Shield } from 'lucide-react'
 import { detectFaces, initializeHuman, getFaceTriangulation } from '@/lib/face-detection'
-import FaceMeshOverlay from '@/components/attendance/face-mesh-overlay'
 
 interface FaceCaptureProps {
   teacherId: string
@@ -44,6 +43,7 @@ export default function FaceCapture({
 }: FaceCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const meshCanvasRef = useRef<HTMLCanvasElement>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [phase, setPhase] = useState<ScanPhase>('ready')
   const [scanProgress, setScanProgress] = useState(0)
@@ -109,6 +109,62 @@ export default function FaceCapture({
     }
   }
 
+  // Draw mesh on canvas
+  const drawMesh = useCallback((mesh: [number, number, number][], tri: number[]) => {
+    const canvas = meshCanvasRef.current
+    const video = videoRef.current
+    if (!canvas || !video) return
+
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+    if (tri.length > 0 && mesh.length > 0) {
+      // Draw triangulation lines
+      ctx.beginPath()
+      ctx.strokeStyle = 'rgba(0, 255, 255, 0.3)'
+      ctx.lineWidth = 0.5
+
+      for (let i = 0; i < tri.length; i += 3) {
+        const a = mesh[tri[i]]
+        const b = mesh[tri[i + 1]]
+        const c = mesh[tri[i + 2]]
+        if (!a || !b || !c) continue
+        ctx.moveTo(a[0], a[1])
+        ctx.lineTo(b[0], b[1])
+        ctx.lineTo(c[0], c[1])
+        ctx.lineTo(a[0], a[1])
+      }
+      ctx.stroke()
+
+      // Draw key landmarks (eyes, nose, mouth outline) with brighter dots
+      const keyPoints = [
+        // Left eye
+        33, 133, 160, 158, 153, 144,
+        // Right eye
+        362, 263, 385, 387, 373, 380,
+        // Nose
+        1, 4, 5, 195,
+        // Mouth
+        61, 291, 13, 14, 78, 308,
+        // Face contour
+        10, 152, 234, 454, 127, 356,
+      ]
+
+      ctx.fillStyle = 'rgba(0, 255, 200, 0.6)'
+      for (const idx of keyPoints) {
+        const pt = mesh[idx]
+        if (!pt) continue
+        ctx.beginPath()
+        ctx.arc(pt[0], pt[1], 1.5, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+  }, [])
+
   // Live face tracking loop
   const trackFace = useCallback(async () => {
     if (!liveTrackingRef.current || !videoRef.current || !humanReady) return
@@ -116,9 +172,17 @@ export default function FaceCapture({
     try {
       const { faces } = await detectFaces(videoRef.current)
       if (faces.length > 0 && faces[0].mesh) {
-        setMeshPoints(faces[0].mesh as [number, number, number][])
+        const mesh = faces[0].mesh as [number, number, number][]
+        setMeshPoints(mesh)
+        drawMesh(mesh, triangulation)
       } else {
         setMeshPoints([])
+        // Clear canvas
+        const canvas = meshCanvasRef.current
+        if (canvas) {
+          const ctx = canvas.getContext('2d')
+          ctx?.clearRect(0, 0, canvas.width, canvas.height)
+        }
       }
     } catch {
       // ignore
@@ -127,7 +191,7 @@ export default function FaceCapture({
     if (liveTrackingRef.current) {
       setTimeout(trackFace, 42) // ~24fps
     }
-  }, [humanReady])
+  }, [humanReady, triangulation, drawMesh])
 
   // Start tracking when human is ready
   useEffect(() => {
@@ -279,16 +343,13 @@ export default function FaceCapture({
           />
           <canvas ref={canvasRef} className="hidden" />
 
-          {/* Face mesh overlay */}
+          {/* Face mesh overlay — mirror to match video */}
           {meshPoints.length > 0 && phase === 'ready' && (
-            <div style={{ transform: 'scaleX(-1)' }}>
-              <FaceMeshOverlay
-                mesh={meshPoints}
-                triangulation={triangulation}
-                videoWidth={videoDimensions.w}
-                videoHeight={videoDimensions.h}
-              />
-            </div>
+            <canvas
+              ref={meshCanvasRef}
+              className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+              style={{ transform: 'scaleX(-1)' }}
+            />
           )}
 
           {/* Scanning phase overlay */}
