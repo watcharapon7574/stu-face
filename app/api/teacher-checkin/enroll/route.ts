@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 
+export const maxDuration = 60 // seconds (Vercel Pro) or 10 (Hobby)
+
 const FACE_API_URL = process.env.FACE_API_URL || 'http://localhost:8000'
 const FACE_API_KEY = process.env.FACE_API_SECRET_KEY || ''
 
