@@ -112,6 +112,7 @@ export default function TeacherEnrollment({
           teacher_id: teacherId,
           images,
           device_fingerprint: deviceFingerprint,
+          skip_anti_spoof: true,
         }),
       })
 
@@ -187,6 +188,7 @@ export default function TeacherEnrollment({
             playsInline
             muted
             className="w-full h-full object-cover"
+            style={{ transform: 'none' }}
           />
           <canvas ref={canvasRef} className="hidden" />
 
