@@ -174,6 +174,15 @@ export type Attendance = Database['public']['Tables']['std_attendance']['Row']
 export type TeacherFace = Database['public']['Tables']['std_teacher_faces']['Row']
 export type TeacherAttendance = Database['public']['Tables']['std_teacher_attendance']['Row']
 
+export interface TeacherSettings {
+  geofence_enabled: boolean
+  geofence_radius: number
+  check_in_start: string
+  check_in_end: string
+  check_out_start: string
+  check_out_end: string
+}
+
 // Attendance with relations
 export type AttendanceWithRelations = Attendance & {
   student?: Student

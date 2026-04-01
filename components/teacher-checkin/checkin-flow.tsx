@@ -15,10 +15,13 @@ import {
   User,
   AlertTriangle,
   Shield,
+  Settings,
+  MapPinOff,
 } from 'lucide-react'
 import { getSavedTeacher, saveTeacher, clearTeacher, type SavedTeacher } from '@/lib/teacher-store'
 import { getDeviceFingerprint } from '@/lib/device-fingerprint'
 import { saveCheckinStatus, getCheckinStatus } from '@/lib/teacher-checkin-store'
+import { getCurrentPosition } from '@/lib/geolocation'
 import TeacherEnrollment from './teacher-enrollment'
 import FaceCapture, { type VerifyResult } from './face-capture'
 
@@ -30,8 +33,30 @@ type FlowState =
   | 'scanning'
   | 'success'
 
+type LocationStatus = 'loading' | 'in_range' | 'out_of_range' | 'error' | 'disabled'
+
+interface ServicePointInfo {
+  id: string
+  name: string
+  short_name: string
+  lat: number
+  lng: number
+  radius_meters: number
+}
+
 interface CheckinFlowProps {
   loginComponent: React.ReactNode
+}
+
+// Haversine distance
+function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000
+  const dLat = ((lat2 - lat1) * Math.PI) / 180
+  const dLng = ((lng2 - lng1) * Math.PI) / 180
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
 export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
@@ -42,6 +67,15 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
   const [result, setResult] = useState<VerifyResult | null>(null)
   const [fpWarning, setFpWarning] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  // Geofencing
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>('loading')
+  const [nearestPoint, setNearestPoint] = useState<ServicePointInfo | null>(null)
+  const [distanceToNearest, setDistanceToNearest] = useState<number | null>(null)
+  const [geofenceRadius, setGeofenceRadius] = useState(200)
+  const [geofenceEnabled, setGeofenceEnabled] = useState(true)
+  const [servicePoints, setServicePoints] = useState<ServicePointInfo[]>([])
 
   const today = new Date().toISOString().split('T')[0]
 
@@ -57,20 +91,39 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
     }
     setTeacher(saved)
 
-    // Get device fingerprint
     const fp = await getDeviceFingerprint()
     setDeviceFP(fp)
 
-    // Check enrollment and attendance status
     try {
       const res = await fetch(
         `/api/teacher-checkin/status?teacher_id=${saved.id}&date=${today}`
       )
       const data = await res.json()
 
-      // Check device fingerprint match
+      // Device fingerprint check
       if (data.device_fingerprint && data.device_fingerprint !== fp) {
         setFpWarning(true)
+      }
+
+      // Admin
+      setIsAdmin(data.is_admin || false)
+
+      // Settings
+      if (data.settings) {
+        setGeofenceEnabled(data.settings.geofence_enabled)
+        setGeofenceRadius(data.settings.geofence_radius)
+      }
+
+      // Service points
+      if (data.service_points) {
+        setServicePoints(data.service_points)
+      }
+
+      // Geofencing check
+      if (data.settings?.geofence_enabled && data.service_points?.length > 0) {
+        checkGeofence(data.service_points, data.settings.geofence_radius)
+      } else {
+        setLocationStatus('disabled')
       }
 
       if (!data.enrolled) {
@@ -78,16 +131,13 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
         return
       }
 
-      // Update local teacher store
       if (!saved.face_enrolled) {
         saveTeacher({ ...saved, face_enrolled: true })
       }
 
-      // Check if already checked in today
       const localStatus = getCheckinStatus(saved.id)
       if (localStatus?.checked_in || data.checked_in) {
         if (data.checked_out) {
-          // Already fully done today
           setResult({
             matched: true,
             confidence: 0,
@@ -101,30 +151,59 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
           setState('success')
           return
         }
-        // Checked in but not checked out
         setCheckType('check_out')
       }
 
       setState('select_type')
     } catch {
-      // Fallback to enrollment check
       setState('select_type')
     }
   }
 
-  const handleTeacherLoggedIn = (t: SavedTeacher) => {
-    setTeacher(t)
-    initFlow()
-  }
+  const checkGeofence = async (points: ServicePointInfo[], radius: number) => {
+    setLocationStatus('loading')
+    try {
+      const pos = await getCurrentPosition()
+      const { latitude, longitude } = pos.coords
 
-  const handleEnrollmentComplete = () => {
-    if (teacher) {
-      saveTeacher({ ...teacher, face_enrolled: true })
+      // Find nearest service point
+      let nearest: ServicePointInfo | null = null
+      let minDist = Infinity
+
+      for (const sp of points) {
+        const dist = haversineDistance(latitude, longitude, sp.lat, sp.lng)
+        if (dist < minDist) {
+          minDist = dist
+          nearest = sp
+        }
+      }
+
+      setNearestPoint(nearest)
+      setDistanceToNearest(Math.round(minDist))
+
+      // Use service point's own radius or global setting
+      const effectiveRadius = nearest?.radius_meters
+        ? Math.max(nearest.radius_meters, radius)
+        : radius
+
+      if (minDist <= effectiveRadius) {
+        setLocationStatus('in_range')
+      } else {
+        setLocationStatus('out_of_range')
+      }
+    } catch {
+      setLocationStatus('error')
     }
-    setState('select_type')
   }
 
   const handleTypeSelect = (type: 'check_in' | 'check_out') => {
+    // Block if out of range and geofence enabled
+    if (geofenceEnabled && locationStatus === 'out_of_range') {
+      setError(
+        `อยู่นอกรัศมี${nearestPoint?.short_name || 'หน่วยบริการ'} (${distanceToNearest}m / ${geofenceRadius}m) ไม่สามารถสแกนได้`
+      )
+      return
+    }
     setCheckType(type)
     setError(null)
     setState('scanning')
@@ -132,8 +211,6 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
 
   const handleScanSuccess = (res: VerifyResult) => {
     setResult(res)
-
-    // Save to local store
     if (teacher) {
       saveCheckinStatus({
         teacher_id: teacher.id,
@@ -148,12 +225,18 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
           checkType === 'check_out' ? new Date().toISOString() : undefined,
       })
     }
-
     setState('success')
   }
 
   const handleScanError = (message: string) => {
     setError(message)
+  }
+
+  const handleEnrollmentComplete = () => {
+    if (teacher) {
+      saveTeacher({ ...teacher, face_enrolled: true })
+    }
+    setState('select_type')
   }
 
   const handleLogout = () => {
@@ -192,15 +275,61 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
               <div className="text-sm font-medium text-gray-900">
                 {teacher.nickname || teacher.name}
               </div>
-              <div className="text-xs text-gray-400">ครูผู้สอน</div>
+              <div className="text-xs text-gray-400">
+                ครูผู้สอน {isAdmin && <span className="text-cyan-500">(Admin)</span>}
+              </div>
             </div>
           </div>
-          <button
-            onClick={handleLogout}
-            className="text-xs text-gray-400 hover:text-red-500 transition-colors"
-          >
-            ออกจากระบบ
-          </button>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <a
+                href="/teacher-checkin/admin"
+                className="p-2 text-gray-400 hover:text-cyan-600 transition-colors"
+              >
+                <Settings className="w-4 h-4" />
+              </a>
+            )}
+            <button
+              onClick={handleLogout}
+              className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+            >
+              ออกจากระบบ
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Location badge */}
+      {geofenceEnabled && (
+        <div className="flex justify-center">
+          {locationStatus === 'loading' && (
+            <div className="inline-flex items-center gap-2 bg-gray-50 rounded-full px-3 py-1.5 border border-gray-100">
+              <Loader2 className="w-3.5 h-3.5 text-gray-400 animate-spin" />
+              <span className="text-xs text-gray-400">ระบุตำแหน่ง...</span>
+            </div>
+          )}
+          {locationStatus === 'in_range' && nearestPoint && (
+            <div className="inline-flex items-center gap-2 bg-green-50 rounded-full px-3 py-1.5 border border-green-200">
+              <MapPin className="w-3.5 h-3.5 text-green-600" />
+              <span className="text-xs text-green-700 font-medium">
+                {nearestPoint.short_name} ({distanceToNearest}m)
+              </span>
+            </div>
+          )}
+          {locationStatus === 'out_of_range' && nearestPoint && (
+            <div className="inline-flex items-center gap-2 bg-red-50 rounded-full px-3 py-1.5 border border-red-200">
+              <MapPinOff className="w-3.5 h-3.5 text-red-500" />
+              <span className="text-xs text-red-700">
+                ห่างจาก {nearestPoint.short_name} {distanceToNearest}m (เกิน {geofenceRadius}m)
+              </span>
+            </div>
+          )}
+          {locationStatus === 'error' && (
+            <div className="inline-flex items-center gap-2 bg-amber-50 rounded-full px-3 py-1.5 border border-amber-200">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+              <span className="text-xs text-amber-700">ไม่สามารถระบุตำแหน่งได้</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -210,9 +339,7 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
           <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
           <div>
             <p className="text-sm text-amber-800 font-medium">อุปกรณ์ไม่ตรงกัน</p>
-            <p className="text-xs text-amber-600 mt-0.5">
-              กรุณาใช้อุปกรณ์เดิมที่ลงทะเบียนไว้
-            </p>
+            <p className="text-xs text-amber-600 mt-0.5">กรุณาใช้อุปกรณ์เดิมที่ลงทะเบียนไว้</p>
           </div>
         </div>
       )}
@@ -229,10 +356,15 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
 
       {/* Select check-in or check-out */}
       {state === 'select_type' && (
-        <TypeSelect
-          isAfternoon={isAfternoon}
-          onSelect={handleTypeSelect}
-        />
+        <>
+          <TypeSelect isAfternoon={isAfternoon} onSelect={handleTypeSelect} />
+          {/* Error from geofence */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm text-center">
+              {error}
+            </div>
+          )}
+        </>
       )}
 
       {/* Face scanning */}
@@ -243,21 +375,16 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
             checkType={checkType}
             date={today}
             deviceFingerprint={deviceFP}
+            servicePointId={nearestPoint?.id}
             onSuccess={handleScanSuccess}
             onError={handleScanError}
           />
-
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm text-center">
               {error}
             </div>
           )}
-
-          <Button
-            onClick={() => setState('select_type')}
-            variant="outline"
-            className="w-full"
-          >
+          <Button onClick={() => setState('select_type')} variant="outline" className="w-full">
             ยกเลิก
           </Button>
         </>
@@ -268,30 +395,31 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
         <Card className="border-gray-200">
           <CardContent className="py-12 text-center">
             <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              {result.message}
-            </h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">{result.message}</h2>
             {teacher && (
-              <p className="text-lg text-gray-700 mb-1">
-                {teacher.nickname || teacher.name}
-              </p>
+              <p className="text-lg text-gray-700 mb-1">{teacher.nickname || teacher.name}</p>
             )}
-            {result.confidence > 0 && (
-              <div className="flex items-center justify-center gap-4 text-sm text-gray-500 mt-3">
+            <div className="flex items-center justify-center gap-4 text-sm text-gray-500 mt-3 flex-wrap">
+              {nearestPoint && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5" />
+                  {nearestPoint.short_name}
+                </span>
+              )}
+              {result.confidence > 0 && (
                 <span className="flex items-center gap-1">
                   <Shield className="w-3.5 h-3.5" />
-                  ความมั่นใจ {(result.confidence * 100).toFixed(0)}%
+                  {(result.confidence * 100).toFixed(0)}%
                 </span>
-                {result.is_real && (
-                  <span className="flex items-center gap-1 text-green-600">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    ใบหน้าจริง
-                  </span>
-                )}
-              </div>
-            )}
+              )}
+              {result.is_real && (
+                <span className="flex items-center gap-1 text-green-600">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  ใบหน้าจริง
+                </span>
+              )}
+            </div>
 
-            {/* Show check-out button if just checked in */}
             {checkType === 'check_in' && (
               <Button
                 onClick={() => handleTypeSelect('check_out')}
@@ -368,21 +496,13 @@ function TypeSelect({
           )}
           <div
             className={`relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${
-              isAfternoon
-                ? 'bg-gray-100'
-                : 'bg-gradient-to-br from-cyan-100 to-cyan-50 shadow-sm'
+              isAfternoon ? 'bg-gray-100' : 'bg-gradient-to-br from-cyan-100 to-cyan-50 shadow-sm'
             }`}
           >
-            <LogIn
-              className={`w-6 h-6 ${isAfternoon ? 'text-gray-300' : 'text-cyan-600'}`}
-            />
+            <LogIn className={`w-6 h-6 ${isAfternoon ? 'text-gray-300' : 'text-cyan-600'}`} />
           </div>
           <div className="relative flex-1 text-left">
-            <div
-              className={`text-2xl font-bold ${
-                isAfternoon ? 'text-gray-300' : 'text-gray-900'
-              }`}
-            >
+            <div className={`text-2xl font-bold ${isAfternoon ? 'text-gray-300' : 'text-gray-900'}`}>
               เข้างาน
             </div>
             <div className={`text-sm ${isAfternoon ? 'text-gray-200' : 'text-gray-400'}`}>
@@ -412,26 +532,16 @@ function TypeSelect({
           )}
           <div
             className={`relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${
-              !isAfternoon
-                ? 'bg-gray-100'
-                : 'bg-gradient-to-br from-violet-100 to-violet-50 shadow-sm'
+              !isAfternoon ? 'bg-gray-100' : 'bg-gradient-to-br from-violet-100 to-violet-50 shadow-sm'
             }`}
           >
-            <LogOut
-              className={`w-6 h-6 ${!isAfternoon ? 'text-gray-300' : 'text-violet-600'}`}
-            />
+            <LogOut className={`w-6 h-6 ${!isAfternoon ? 'text-gray-300' : 'text-violet-600'}`} />
           </div>
           <div className="relative flex-1 text-left">
-            <div
-              className={`text-2xl font-bold ${
-                !isAfternoon ? 'text-gray-300' : 'text-gray-900'
-              }`}
-            >
+            <div className={`text-2xl font-bold ${!isAfternoon ? 'text-gray-300' : 'text-gray-900'}`}>
               ออกงาน
             </div>
-            <div
-              className={`text-sm ${!isAfternoon ? 'text-gray-200' : 'text-gray-400'}`}
-            >
+            <div className={`text-sm ${!isAfternoon ? 'text-gray-200' : 'text-gray-400'}`}>
               Check out
             </div>
           </div>

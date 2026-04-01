@@ -1,4 +1,4 @@
-const CACHE_VERSION = '0.1.19';
+const CACHE_VERSION = '0.1.20';
 const CACHE_NAME = 'stu-face-' + CACHE_VERSION;
 
 // Install — wait for SKIP_WAITING message from client
