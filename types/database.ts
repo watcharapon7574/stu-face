@@ -41,6 +41,79 @@ export interface Database {
           updated_at?: string
         }
       }
+      std_teacher_faces: {
+        Row: {
+          id: string
+          teacher_id: string
+          face_embeddings: Json
+          device_fingerprint: string | null
+          enrolled_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          teacher_id: string
+          face_embeddings?: Json
+          device_fingerprint?: string | null
+          enrolled_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          teacher_id?: string
+          face_embeddings?: Json
+          device_fingerprint?: string | null
+          enrolled_at?: string
+          updated_at?: string
+        }
+      }
+      std_teacher_attendance: {
+        Row: {
+          id: string
+          teacher_id: string
+          date: string
+          check_in: string | null
+          check_out: string | null
+          confidence_in: number | null
+          confidence_out: number | null
+          anti_spoof_score_in: number | null
+          anti_spoof_score_out: number | null
+          device_fingerprint: string | null
+          service_point_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          teacher_id: string
+          date: string
+          check_in?: string | null
+          check_out?: string | null
+          confidence_in?: number | null
+          confidence_out?: number | null
+          anti_spoof_score_in?: number | null
+          anti_spoof_score_out?: number | null
+          device_fingerprint?: string | null
+          service_point_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          teacher_id?: string
+          date?: string
+          check_in?: string | null
+          check_out?: string | null
+          confidence_in?: number | null
+          confidence_out?: number | null
+          anti_spoof_score_in?: number | null
+          anti_spoof_score_out?: number | null
+          device_fingerprint?: string | null
+          service_point_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
       std_attendance: {
         Row: {
           id: string
@@ -98,6 +171,8 @@ export type FaceEmbedding = number[]
 // Helper types
 export type Student = Database['public']['Tables']['std_students']['Row']
 export type Attendance = Database['public']['Tables']['std_attendance']['Row']
+export type TeacherFace = Database['public']['Tables']['std_teacher_faces']['Row']
+export type TeacherAttendance = Database['public']['Tables']['std_teacher_attendance']['Row']
 
 // Attendance with relations
 export type AttendanceWithRelations = Attendance & {

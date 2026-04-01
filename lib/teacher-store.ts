@@ -5,6 +5,7 @@ export interface SavedTeacher {
   name: string
   nickname: string | null
   avatar_url?: string | null
+  face_enrolled?: boolean
 }
 
 export function getSavedTeacher(): SavedTeacher | null {

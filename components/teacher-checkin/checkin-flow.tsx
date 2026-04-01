@@ -1,0 +1,456 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import {
+  CheckCircle2,
+  Loader2,
+  LogIn,
+  LogOut,
+  Sun,
+  Moon,
+  Clock,
+  MapPin,
+  User,
+  AlertTriangle,
+  Shield,
+} from 'lucide-react'
+import { getSavedTeacher, saveTeacher, clearTeacher, type SavedTeacher } from '@/lib/teacher-store'
+import { getDeviceFingerprint } from '@/lib/device-fingerprint'
+import { saveCheckinStatus, getCheckinStatus } from '@/lib/teacher-checkin-store'
+import TeacherEnrollment from './teacher-enrollment'
+import FaceCapture, { type VerifyResult } from './face-capture'
+
+type FlowState =
+  | 'loading'
+  | 'not_logged_in'
+  | 'not_enrolled'
+  | 'select_type'
+  | 'scanning'
+  | 'success'
+
+interface CheckinFlowProps {
+  loginComponent: React.ReactNode
+}
+
+export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
+  const [state, setState] = useState<FlowState>('loading')
+  const [teacher, setTeacher] = useState<SavedTeacher | null>(null)
+  const [deviceFP, setDeviceFP] = useState('')
+  const [checkType, setCheckType] = useState<'check_in' | 'check_out'>('check_in')
+  const [result, setResult] = useState<VerifyResult | null>(null)
+  const [fpWarning, setFpWarning] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const today = new Date().toISOString().split('T')[0]
+
+  useEffect(() => {
+    initFlow()
+  }, [])
+
+  const initFlow = async () => {
+    const saved = getSavedTeacher()
+    if (!saved) {
+      setState('not_logged_in')
+      return
+    }
+    setTeacher(saved)
+
+    // Get device fingerprint
+    const fp = await getDeviceFingerprint()
+    setDeviceFP(fp)
+
+    // Check enrollment and attendance status
+    try {
+      const res = await fetch(
+        `/api/teacher-checkin/status?teacher_id=${saved.id}&date=${today}`
+      )
+      const data = await res.json()
+
+      // Check device fingerprint match
+      if (data.device_fingerprint && data.device_fingerprint !== fp) {
+        setFpWarning(true)
+      }
+
+      if (!data.enrolled) {
+        setState('not_enrolled')
+        return
+      }
+
+      // Update local teacher store
+      if (!saved.face_enrolled) {
+        saveTeacher({ ...saved, face_enrolled: true })
+      }
+
+      // Check if already checked in today
+      const localStatus = getCheckinStatus(saved.id)
+      if (localStatus?.checked_in || data.checked_in) {
+        if (data.checked_out) {
+          // Already fully done today
+          setResult({
+            matched: true,
+            confidence: 0,
+            is_real: true,
+            anti_spoof_score: 0,
+            spoofing_scores: [],
+            frame_results: { total: 0, real: 0, matched: 0 },
+            attendance_saved: true,
+            message: 'สแกนเข้า-ออกงานครบแล้ววันนี้',
+          })
+          setState('success')
+          return
+        }
+        // Checked in but not checked out
+        setCheckType('check_out')
+      }
+
+      setState('select_type')
+    } catch {
+      // Fallback to enrollment check
+      setState('select_type')
+    }
+  }
+
+  const handleTeacherLoggedIn = (t: SavedTeacher) => {
+    setTeacher(t)
+    initFlow()
+  }
+
+  const handleEnrollmentComplete = () => {
+    if (teacher) {
+      saveTeacher({ ...teacher, face_enrolled: true })
+    }
+    setState('select_type')
+  }
+
+  const handleTypeSelect = (type: 'check_in' | 'check_out') => {
+    setCheckType(type)
+    setError(null)
+    setState('scanning')
+  }
+
+  const handleScanSuccess = (res: VerifyResult) => {
+    setResult(res)
+
+    // Save to local store
+    if (teacher) {
+      saveCheckinStatus({
+        teacher_id: teacher.id,
+        date: today,
+        checked_in: true,
+        check_in_time:
+          checkType === 'check_in'
+            ? new Date().toISOString()
+            : getCheckinStatus(teacher.id)?.check_in_time,
+        checked_out: checkType === 'check_out',
+        check_out_time:
+          checkType === 'check_out' ? new Date().toISOString() : undefined,
+      })
+    }
+
+    setState('success')
+  }
+
+  const handleScanError = (message: string) => {
+    setError(message)
+  }
+
+  const handleLogout = () => {
+    clearTeacher()
+    setTeacher(null)
+    setState('not_logged_in')
+  }
+
+  // --- Renders ---
+
+  if (state === 'loading') {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-8 h-8 text-cyan-500 animate-spin" />
+      </div>
+    )
+  }
+
+  if (state === 'not_logged_in') {
+    return <>{loginComponent}</>
+  }
+
+  const hours = new Date().getHours()
+  const isAfternoon = hours >= 12
+
+  return (
+    <div className="space-y-4">
+      {/* Teacher info bar */}
+      {teacher && (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+              <User className="w-4 h-4 text-blue-600" />
+            </div>
+            <div>
+              <div className="text-sm font-medium text-gray-900">
+                {teacher.nickname || teacher.name}
+              </div>
+              <div className="text-xs text-gray-400">ครูผู้สอน</div>
+            </div>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+          >
+            ออกจากระบบ
+          </button>
+        </div>
+      )}
+
+      {/* Device fingerprint warning */}
+      {fpWarning && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm text-amber-800 font-medium">อุปกรณ์ไม่ตรงกัน</p>
+            <p className="text-xs text-amber-600 mt-0.5">
+              กรุณาใช้อุปกรณ์เดิมที่ลงทะเบียนไว้
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Enrollment */}
+      {state === 'not_enrolled' && teacher && (
+        <TeacherEnrollment
+          teacherId={teacher.id}
+          teacherName={teacher.nickname || teacher.name}
+          deviceFingerprint={deviceFP}
+          onComplete={handleEnrollmentComplete}
+        />
+      )}
+
+      {/* Select check-in or check-out */}
+      {state === 'select_type' && (
+        <TypeSelect
+          isAfternoon={isAfternoon}
+          onSelect={handleTypeSelect}
+        />
+      )}
+
+      {/* Face scanning */}
+      {state === 'scanning' && teacher && (
+        <>
+          <FaceCapture
+            teacherId={teacher.id}
+            checkType={checkType}
+            date={today}
+            deviceFingerprint={deviceFP}
+            onSuccess={handleScanSuccess}
+            onError={handleScanError}
+          />
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm text-center">
+              {error}
+            </div>
+          )}
+
+          <Button
+            onClick={() => setState('select_type')}
+            variant="outline"
+            className="w-full"
+          >
+            ยกเลิก
+          </Button>
+        </>
+      )}
+
+      {/* Success */}
+      {state === 'success' && result && (
+        <Card className="border-gray-200">
+          <CardContent className="py-12 text-center">
+            <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+              {result.message}
+            </h2>
+            {teacher && (
+              <p className="text-lg text-gray-700 mb-1">
+                {teacher.nickname || teacher.name}
+              </p>
+            )}
+            {result.confidence > 0 && (
+              <div className="flex items-center justify-center gap-4 text-sm text-gray-500 mt-3">
+                <span className="flex items-center gap-1">
+                  <Shield className="w-3.5 h-3.5" />
+                  ความมั่นใจ {(result.confidence * 100).toFixed(0)}%
+                </span>
+                {result.is_real && (
+                  <span className="flex items-center gap-1 text-green-600">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    ใบหน้าจริง
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Show check-out button if just checked in */}
+            {checkType === 'check_in' && (
+              <Button
+                onClick={() => handleTypeSelect('check_out')}
+                variant="outline"
+                className="mt-6"
+                disabled={!isAfternoon}
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                {isAfternoon ? 'สแกนออกงาน' : 'รอช่วงบ่ายเพื่อสแกนออก'}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  )
+}
+
+// --- Type Selection Sub-component ---
+function TypeSelect({
+  isAfternoon,
+  onSelect,
+}: {
+  isAfternoon: boolean
+  onSelect: (type: 'check_in' | 'check_out') => void
+}) {
+  const [now, setNow] = useState(new Date())
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const hours = now.getHours()
+  const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
+  const dateStr = now.toLocaleDateString('th-TH', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+  const greeting =
+    hours < 12 ? 'สวัสดีตอนเช้า' : hours < 17 ? 'สวัสดีตอนบ่าย' : 'สวัสดีตอนเย็น'
+
+  return (
+    <div className="flex flex-col flex-1">
+      <div className="text-center mb-6">
+        <div className="inline-flex items-center gap-2 bg-gray-50 rounded-full px-4 py-2 border border-gray-100">
+          {hours < 17 ? (
+            <Sun className="w-4 h-4 text-amber-400" />
+          ) : (
+            <Moon className="w-4 h-4 text-indigo-400" />
+          )}
+          <span className="text-xs text-gray-500">{greeting}</span>
+        </div>
+        <div className="text-5xl font-extralight text-gray-900 mt-4 tabular-nums tracking-tight">
+          {timeStr}
+        </div>
+        <div className="text-sm text-gray-400 mt-1">{dateStr}</div>
+      </div>
+
+      <div className="flex flex-col gap-4 flex-1">
+        <button
+          onClick={() => onSelect('check_in')}
+          disabled={isAfternoon}
+          className={`group relative flex-1 rounded-3xl p-6 flex items-center gap-5 transition-all active:scale-[0.97] disabled:pointer-events-none overflow-hidden ${
+            isAfternoon
+              ? 'bg-gray-50/80 border border-gray-100'
+              : 'bg-white border border-cyan-200 shadow-[0_2px_20px_rgba(0,180,200,0.10)] hover:shadow-[0_8px_32px_rgba(0,180,200,0.18)] hover:border-cyan-300'
+          }`}
+        >
+          {!isAfternoon && (
+            <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full bg-cyan-50 opacity-60" />
+          )}
+          <div
+            className={`relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${
+              isAfternoon
+                ? 'bg-gray-100'
+                : 'bg-gradient-to-br from-cyan-100 to-cyan-50 shadow-sm'
+            }`}
+          >
+            <LogIn
+              className={`w-6 h-6 ${isAfternoon ? 'text-gray-300' : 'text-cyan-600'}`}
+            />
+          </div>
+          <div className="relative flex-1 text-left">
+            <div
+              className={`text-2xl font-bold ${
+                isAfternoon ? 'text-gray-300' : 'text-gray-900'
+              }`}
+            >
+              เข้างาน
+            </div>
+            <div className={`text-sm ${isAfternoon ? 'text-gray-200' : 'text-gray-400'}`}>
+              Check in
+            </div>
+          </div>
+          {!isAfternoon && (
+            <div className="relative mr-2">
+              <div className="w-10 h-10 rounded-full bg-cyan-500 flex items-center justify-center shadow-lg shadow-cyan-500/30 group-hover:scale-110 transition-transform">
+                <LogIn className="w-5 h-5 text-white" />
+              </div>
+            </div>
+          )}
+        </button>
+
+        <button
+          onClick={() => onSelect('check_out')}
+          disabled={!isAfternoon}
+          className={`group relative flex-1 rounded-3xl p-6 flex items-center gap-5 transition-all active:scale-[0.97] disabled:pointer-events-none overflow-hidden ${
+            !isAfternoon
+              ? 'bg-gray-50/80 border border-gray-100'
+              : 'bg-white border border-violet-200 shadow-[0_2px_20px_rgba(130,80,220,0.10)] hover:shadow-[0_8px_32px_rgba(130,80,220,0.18)] hover:border-violet-300'
+          }`}
+        >
+          {isAfternoon && (
+            <div className="absolute -right-8 -bottom-8 w-32 h-32 rounded-full bg-violet-50 opacity-60" />
+          )}
+          <div
+            className={`relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${
+              !isAfternoon
+                ? 'bg-gray-100'
+                : 'bg-gradient-to-br from-violet-100 to-violet-50 shadow-sm'
+            }`}
+          >
+            <LogOut
+              className={`w-6 h-6 ${!isAfternoon ? 'text-gray-300' : 'text-violet-600'}`}
+            />
+          </div>
+          <div className="relative flex-1 text-left">
+            <div
+              className={`text-2xl font-bold ${
+                !isAfternoon ? 'text-gray-300' : 'text-gray-900'
+              }`}
+            >
+              ออกงาน
+            </div>
+            <div
+              className={`text-sm ${!isAfternoon ? 'text-gray-200' : 'text-gray-400'}`}
+            >
+              Check out
+            </div>
+          </div>
+          {isAfternoon && (
+            <div className="relative mr-2">
+              <div className="w-10 h-10 rounded-full bg-violet-500 flex items-center justify-center shadow-lg shadow-violet-500/30 group-hover:scale-110 transition-transform">
+                <LogOut className="w-5 h-5 text-white" />
+              </div>
+            </div>
+          )}
+        </button>
+      </div>
+
+      <div className="flex items-center justify-center gap-2 mt-4 mb-2">
+        <Clock className="w-3.5 h-3.5 text-gray-300" />
+        <span className="text-xs text-gray-300">
+          {isAfternoon ? 'ช่วงบ่าย — สแกนออกงาน' : 'ช่วงเช้า — สแกนเข้างาน'}
+        </span>
+      </div>
+    </div>
+  )
+}
