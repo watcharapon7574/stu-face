@@ -153,6 +153,17 @@ export async function POST(request: Request) {
       .eq('date', date)
       .maybeSingle()
 
+    // Guard: cannot check out without an existing check_in for today
+    if (!isCheckIn && (!existing || !existing.check_in)) {
+      return NextResponse.json({
+        matched: false,
+        attendance_saved: false,
+        confidence: maxSim,
+        is_real: true,
+        message: 'ยังไม่ได้สแกนเข้างานวันนี้ ไม่สามารถสแกนออกได้',
+      })
+    }
+
     const timeFields = isCheckIn
       ? {
           check_in: now,
