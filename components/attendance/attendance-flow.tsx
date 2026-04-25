@@ -454,7 +454,7 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
   const [updatingStudent, setUpdatingStudent] = useState<Student | null>(null)
   const [teacher, setTeacher] = useState<SavedTeacher | null>(null)
-  const { status, matched } = useLocationDetection(servicePoints)
+  const { status, matched, closest } = useLocationDetection(servicePoints)
 
   // Load saved teacher from localStorage on mount
   useEffect(() => {
@@ -557,6 +557,12 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
           <div className="inline-flex items-center gap-2 bg-green-50 rounded-full px-3 py-1.5 border border-green-200">
             <MapPin className="w-3.5 h-3.5 text-green-600" />
             <span className="text-xs text-green-700 font-medium">{matched.short_name}</span>
+          </div>
+        )}
+        {status === 'out_of_range' && closest && (
+          <div className="inline-flex items-center gap-2 bg-gray-50 rounded-full px-3 py-1.5 border border-gray-200">
+            <MapPin className="w-3.5 h-3.5 text-gray-400" />
+            <span className="text-xs text-gray-500">{closest.point.short_name}</span>
           </div>
         )}
         {status === 'error' && (
