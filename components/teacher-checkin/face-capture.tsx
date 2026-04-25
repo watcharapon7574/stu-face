@@ -27,9 +27,6 @@ export interface VerifyResult {
   message: string
 }
 
-const FRAME_COUNT = 3
-const FRAME_INTERVAL_MS = 400
-
 type ScanPhase = 'ready' | 'capturing' | 'uploading' | 'processing'
 
 export default function FaceCapture({
@@ -54,7 +51,6 @@ export default function FaceCapture({
   const [humanReady, setHumanReady] = useState(false)
   const [meshPoints, setMeshPoints] = useState<[number, number, number][]>([])
   const [triangulation, setTriangulation] = useState<number[]>([])
-  const [videoDimensions, setVideoDimensions] = useState({ w: 480, h: 640 })
   const liveTrackingRef = useRef(true)
 
   // Initialize Human + camera
@@ -69,7 +65,7 @@ export default function FaceCapture({
           setTriangulation(getFaceTriangulation())
         }
       } catch {
-        // Human init failed, continue without mesh
+        // Human init failed
       }
 
       try {
@@ -99,16 +95,6 @@ export default function FaceCapture({
     }
   }, [])
 
-  // Video metadata
-  const handleVideoMetadata = () => {
-    if (videoRef.current) {
-      setVideoDimensions({
-        w: videoRef.current.videoWidth,
-        h: videoRef.current.videoHeight,
-      })
-    }
-  }
-
   // Draw mesh on canvas
   const drawMesh = useCallback((mesh: [number, number, number][], tri: number[]) => {
     const canvas = meshCanvasRef.current
@@ -123,7 +109,6 @@ export default function FaceCapture({
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
     if (tri.length > 0 && mesh.length > 0) {
-      // Draw triangulation lines
       ctx.beginPath()
       ctx.strokeStyle = 'rgba(0, 255, 255, 0.3)'
       ctx.lineWidth = 0.5
@@ -140,17 +125,11 @@ export default function FaceCapture({
       }
       ctx.stroke()
 
-      // Draw key landmarks (eyes, nose, mouth outline) with brighter dots
       const keyPoints = [
-        // Left eye
         33, 133, 160, 158, 153, 144,
-        // Right eye
         362, 263, 385, 387, 373, 380,
-        // Nose
         1, 4, 5, 195,
-        // Mouth
         61, 291, 13, 14, 78, 308,
-        // Face contour
         10, 152, 234, 454, 127, 356,
       ]
 
@@ -177,7 +156,6 @@ export default function FaceCapture({
         drawMesh(mesh, triangulation)
       } else {
         setMeshPoints([])
-        // Clear canvas
         const canvas = meshCanvasRef.current
         if (canvas) {
           const ctx = canvas.getContext('2d')
@@ -193,7 +171,6 @@ export default function FaceCapture({
     }
   }, [humanReady, triangulation, drawMesh])
 
-  // Start tracking when human is ready
   useEffect(() => {
     if (humanReady && phase === 'ready') {
       liveTrackingRef.current = true
@@ -219,52 +196,47 @@ export default function FaceCapture({
     }
   }
 
-  const captureFrames = async (): Promise<string[]> => {
-    const frames: string[] = []
-    for (let i = 0; i < FRAME_COUNT; i++) {
-      if (!videoRef.current || !canvasRef.current) break
+  const handleScan = async () => {
+    if (!videoRef.current || !canvasRef.current) return
+
+    setPhase('capturing')
+    liveTrackingRef.current = false
+    setError(null)
+    setScanProgress(20)
+
+    try {
+      // Capture frame to canvas
       const video = videoRef.current
       const canvas = canvasRef.current
       canvas.width = video.videoWidth
       canvas.height = video.videoHeight
       const ctx = canvas.getContext('2d')
-      if (!ctx) break
+      if (!ctx) throw new Error('canvas')
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-      frames.push(canvas.toDataURL('image/jpeg', 0.85))
-      setScanProgress(((i + 1) / FRAME_COUNT) * 50) // 0-50% for capturing
-      if (i < FRAME_COUNT - 1) {
-        await new Promise((r) => setTimeout(r, FRAME_INTERVAL_MS))
-      }
-    }
-    return frames
-  }
 
-  const handleScan = async () => {
-    setPhase('capturing')
-    liveTrackingRef.current = false
-    setError(null)
-    setScanProgress(0)
+      setScanProgress(50)
+      setPhase('processing')
 
-    try {
-      const frames = await captureFrames()
-      if (frames.length < FRAME_COUNT) {
-        setError('ไม่สามารถจับภาพได้ครบ กรุณาลองอีกครั้ง')
+      // Extract embedding client-side
+      const { embeddings } = await detectFaces(canvas)
+      if (embeddings.length === 0) {
+        setError('ไม่พบใบหน้า ลองอีกครั้ง')
         setPhase('ready')
         liveTrackingRef.current = true
         trackFace()
         return
       }
 
-      // Upload phase
+      setScanProgress(70)
       setPhase('uploading')
-      setScanProgress(60)
 
+      // Send embedding to server for matching + attendance save
       const res = await fetch('/api/teacher-checkin/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           teacher_id: teacherId,
-          frames,
+          embedding: embeddings[0],
           device_fingerprint: deviceFingerprint,
           service_point_id: servicePointId || null,
           check_type: checkType,
@@ -272,12 +244,8 @@ export default function FaceCapture({
         }),
       })
 
-      // Processing phase
-      setPhase('processing')
-      setScanProgress(90)
-
-      const data: VerifyResult = await res.json()
       setScanProgress(100)
+      const data: VerifyResult = await res.json()
 
       if (!res.ok) {
         onError(data.message || 'เกิดข้อผิดพลาด')
@@ -297,7 +265,7 @@ export default function FaceCapture({
         trackFace()
       }
     } catch {
-      setError('ไม่สามารถเชื่อมต่อ API ได้')
+      setError('ไม่สามารถส่งข้อมูลได้')
       setPhase('ready')
       liveTrackingRef.current = true
       trackFace()
@@ -310,7 +278,7 @@ export default function FaceCapture({
   const phaseLabel = {
     ready: '',
     capturing: 'จับภาพใบหน้า...',
-    uploading: 'กำลังส่งข้อมูล...',
+    uploading: 'กำลังบันทึก...',
     processing: 'ตรวจสอบใบหน้า...',
   }
 
@@ -330,7 +298,6 @@ export default function FaceCapture({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Video preview with face mesh */}
         <div className="relative aspect-[3/4] bg-black rounded-xl overflow-hidden">
           <video
             ref={videoRef}
@@ -339,11 +306,9 @@ export default function FaceCapture({
             muted
             className="w-full h-full object-cover"
             style={{ transform: 'scaleX(-1)' }}
-            onLoadedMetadata={handleVideoMetadata}
           />
           <canvas ref={canvasRef} className="hidden" />
 
-          {/* Face mesh overlay — mirror to match video */}
           {meshPoints.length > 0 && phase === 'ready' && (
             <canvas
               ref={meshCanvasRef}
@@ -352,10 +317,8 @@ export default function FaceCapture({
             />
           )}
 
-          {/* Scanning phase overlay */}
           {isScanning && (
             <div className="absolute inset-0 bg-black/30 flex flex-col items-center justify-center">
-              {/* Animated border */}
               <div className={`border-4 rounded-full w-52 h-52 ${phaseColor[phase]} ${
                 phase === 'capturing' ? 'animate-pulse' : 'animate-spin'
               }`} style={{
@@ -363,7 +326,6 @@ export default function FaceCapture({
                 animationDuration: phase === 'processing' ? '2s' : '1.5s',
               }} />
 
-              {/* Phase info */}
               <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-5">
                 <div className="flex items-center gap-3 mb-3">
                   {phase === 'capturing' ? (
@@ -387,7 +349,6 @@ export default function FaceCapture({
                   </div>
                 </div>
 
-                {/* Progress bar */}
                 <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${
@@ -404,7 +365,6 @@ export default function FaceCapture({
             </div>
           )}
 
-          {/* Face detected badge (ready state) */}
           {phase === 'ready' && meshPoints.length > 0 && (
             <div className="absolute top-3 left-3 bg-green-500/80 backdrop-blur-sm rounded-full px-3 py-1.5 flex items-center gap-1.5">
               <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
@@ -412,7 +372,6 @@ export default function FaceCapture({
             </div>
           )}
 
-          {/* No face warning */}
           {phase === 'ready' && humanReady && meshPoints.length === 0 && (
             <div className="absolute top-3 left-3 bg-red-500/80 backdrop-blur-sm rounded-full px-3 py-1.5 flex items-center gap-1.5">
               <div className="w-2 h-2 rounded-full bg-white" />
@@ -420,7 +379,6 @@ export default function FaceCapture({
             </div>
           )}
 
-          {/* Switch camera */}
           {phase === 'ready' && (
             <button
               onClick={toggleCamera}
@@ -430,7 +388,6 @@ export default function FaceCapture({
             </button>
           )}
 
-          {/* Loading Human */}
           {!humanReady && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/40">
               <div className="text-center">
@@ -441,7 +398,6 @@ export default function FaceCapture({
           )}
         </div>
 
-        {/* Error */}
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -449,7 +405,6 @@ export default function FaceCapture({
           </div>
         )}
 
-        {/* Scan button */}
         <Button
           onClick={handleScan}
           disabled={isScanning || !humanReady || meshPoints.length === 0}
@@ -471,7 +426,7 @@ export default function FaceCapture({
 
         {!isScanning && (
           <p className="text-xs text-center text-gray-400">
-            ระบบจะจับภาพอัตโนมัติ {FRAME_COUNT} เฟรม พร้อมตรวจสอบความปลอดภัย
+            ระบบจะตรวจใบหน้าและบันทึกการลงเวลาอัตโนมัติ
           </p>
         )}
       </CardContent>

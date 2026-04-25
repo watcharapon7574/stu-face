@@ -4,6 +4,8 @@ import { useRef, useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Camera, CheckCircle2, SwitchCamera, Loader2, UserCheck } from 'lucide-react'
+import { detectFaces, initializeHuman } from '@/lib/face-detection'
+import type { FaceEmbedding } from '@/types/database'
 
 const ANGLE_GUIDES = [
   { label: 'หน้าตรง', desc: 'มองตรงกล้อง' },
@@ -27,11 +29,12 @@ export default function TeacherEnrollment({
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
-  const [capturedImages, setCapturedImages] = useState<string[]>([])
+  const [capturedEmbeddings, setCapturedEmbeddings] = useState<FaceEmbedding[]>([])
   const [isCapturing, setIsCapturing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user')
+  const [humanReady, setHumanReady] = useState(false)
 
   const startCamera = async (facing: 'user' | 'environment') => {
     if (stream) {
@@ -55,8 +58,17 @@ export default function TeacherEnrollment({
   }
 
   useEffect(() => {
+    let mounted = true
+    initializeHuman()
+      .then(() => {
+        if (mounted) setHumanReady(true)
+      })
+      .catch(() => {
+        if (mounted) setError('โหลดระบบไม่สำเร็จ')
+      })
     startCamera(facingMode)
     return () => {
+      mounted = false
       stream?.getTracks().forEach((t) => t.stop())
     }
   }, [])
@@ -83,15 +95,25 @@ export default function TeacherEnrollment({
       if (!ctx) throw new Error('Failed to get canvas context')
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
 
-      // Convert to base64
-      const base64 = canvas.toDataURL('image/jpeg', 0.85)
-      const newImages = [...capturedImages, base64]
-      setCapturedImages(newImages)
+      // Extract embedding client-side
+      const { embeddings } = await detectFaces(canvas)
+      if (embeddings.length === 0) {
+        setError('ไม่พบใบหน้า ลองอีกครั้ง')
+        setIsCapturing(false)
+        return
+      }
+      if (embeddings.length > 1) {
+        setError('พบมากกว่า 1 ใบหน้า')
+        setIsCapturing(false)
+        return
+      }
 
-      // If all 3 photos taken, send to API
-      if (newImages.length >= 3) {
+      const newEmbeddings = [...capturedEmbeddings, embeddings[0]]
+      setCapturedEmbeddings(newEmbeddings)
+
+      if (newEmbeddings.length >= 3) {
         stream?.getTracks().forEach((t) => t.stop())
-        await enrollFace(newImages)
+        await saveEmbeddings(newEmbeddings)
       }
     } catch {
       setError('เกิดข้อผิดพลาด กรุณาลองอีกครั้ง')
@@ -100,7 +122,7 @@ export default function TeacherEnrollment({
     }
   }
 
-  const enrollFace = async (images: string[]) => {
+  const saveEmbeddings = async (embeddings: FaceEmbedding[]) => {
     setIsSaving(true)
     setError(null)
 
@@ -110,9 +132,8 @@ export default function TeacherEnrollment({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           teacher_id: teacherId,
-          images,
+          embeddings,
           device_fingerprint: deviceFingerprint,
-          skip_anti_spoof: true,
         }),
       })
 
@@ -120,8 +141,7 @@ export default function TeacherEnrollment({
 
       if (!res.ok || !data.success) {
         setError(data.message || 'ลงทะเบียนไม่สำเร็จ')
-        // Reset to try again
-        setCapturedImages([])
+        setCapturedEmbeddings([])
         await startCamera(facingMode)
         setIsSaving(false)
         return
@@ -129,14 +149,14 @@ export default function TeacherEnrollment({
 
       onComplete()
     } catch {
-      setError('ไม่สามารถเชื่อมต่อ API ได้')
-      setCapturedImages([])
+      setError('ไม่สามารถบันทึกได้')
+      setCapturedEmbeddings([])
       await startCamera(facingMode)
       setIsSaving(false)
     }
   }
 
-  const currentStep = capturedImages.length
+  const currentStep = capturedEmbeddings.length
   const guide = ANGLE_GUIDES[currentStep] || ANGLE_GUIDES[0]
   const progress = (currentStep / 3) * 100
 
@@ -204,6 +224,15 @@ export default function TeacherEnrollment({
           >
             <SwitchCamera className="w-5 h-5" />
           </button>
+
+          {!humanReady && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+              <div className="text-center">
+                <Loader2 className="w-8 h-8 text-cyan-400 animate-spin mx-auto mb-2" />
+                <span className="text-white text-sm">กำลังโหลดระบบ...</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Error */}
@@ -251,7 +280,7 @@ export default function TeacherEnrollment({
         {/* Capture button */}
         <Button
           onClick={capturePhoto}
-          disabled={isCapturing || currentStep >= 3}
+          disabled={isCapturing || currentStep >= 3 || !humanReady}
           className="w-full"
           size="lg"
         >
