@@ -7,12 +7,9 @@ import {
   Settings,
   Users,
   MapPin,
-  CheckCircle2,
-  XCircle,
   Loader2,
   ArrowLeft,
   Shield,
-  Clock,
   Save,
   ScanFace,
   Trash2,
@@ -31,7 +28,15 @@ import AddTeacherModal, {
 } from '@/components/admin/add-teacher-modal'
 import type { FaceEmbedding } from '@/types/database'
 
-type Tab = 'teachers' | 'students' | 'settings' | 'service_points'
+type Tab = 'teachers' | 'students' | 'service_points'
+
+function formatTime(iso: string | null): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleTimeString('th-TH', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
 
 interface TeacherInfo {
   teacher_id: string
@@ -320,7 +325,6 @@ export default function AdminPage() {
           {[
             { id: 'teachers' as Tab, label: 'ครู', icon: Users },
             { id: 'students' as Tab, label: 'นักเรียน', icon: GraduationCap },
-            { id: 'settings' as Tab, label: 'ตั้งค่า', icon: Settings },
             { id: 'service_points' as Tab, label: 'หน่วย', icon: MapPin },
           ].map((t) => {
             const Icon = t.icon
@@ -413,28 +417,18 @@ export default function AdminPage() {
                           <span className="text-[10px] text-gray-400">
                             {t.embedding_count} ใบหน้า
                           </span>
-                          {t.check_in_time && (
-                            <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
-                              <Clock className="w-3 h-3" />
-                              {new Date(t.check_in_time).toLocaleTimeString('th-TH', {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
-                            </span>
-                          )}
+                          <span
+                            className={`text-[10px] tabular-nums ${
+                              t.check_in_time
+                                ? 'text-gray-600'
+                                : 'text-gray-300'
+                            }`}
+                          >
+                            {formatTime(t.check_in_time)} → {formatTime(t.check_out_time)}
+                          </span>
                         </div>
                       </div>
                       <div className="flex items-center gap-0.5 shrink-0">
-                        {t.checked_in ? (
-                          <CheckCircle2 className="w-4 h-4 text-green-500" />
-                        ) : (
-                          <XCircle className="w-4 h-4 text-gray-300" />
-                        )}
-                        {t.checked_out ? (
-                          <CheckCircle2 className="w-4 h-4 text-violet-500" />
-                        ) : (
-                          <XCircle className="w-4 h-4 text-gray-300" />
-                        )}
                         <button
                           onClick={() =>
                             setFaceModal({
@@ -464,24 +458,150 @@ export default function AdminPage() {
                     </p>
                   )}
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Settings card (moved from settings tab) */}
+            <Card className="border-gray-200">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-cyan-500" />
+                  ตั้งค่าระบบ
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-medium text-gray-900">Geofence</div>
+                    <div className="text-xs text-gray-400">
+                      บังคับสแกนในรัศมีหน่วยบริการ
+                    </div>
+                  </div>
+                  <button
+                    onClick={() =>
+                      setSettings((s) => ({
+                        ...s,
+                        geofence_enabled:
+                          s.geofence_enabled === 'true' ? 'false' : 'true',
+                      }))
+                    }
+                    className={`relative w-12 h-7 rounded-full transition-colors ${
+                      settings.geofence_enabled === 'true'
+                        ? 'bg-cyan-500'
+                        : 'bg-gray-200'
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${
+                        settings.geofence_enabled === 'true'
+                          ? 'translate-x-5'
+                          : 'translate-x-0.5'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {settings.geofence_enabled === 'true' && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-900">
+                      รัศมี Geofence (เมตร)
+                    </label>
+                    <input
+                      type="number"
+                      value={settings.geofence_radius}
+                      onChange={(e) =>
+                        setSettings((s) => ({
+                          ...s,
+                          geofence_radius: e.target.value,
+                        }))
+                      }
+                      className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+                      min="50"
+                      max="5000"
+                    />
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">
+                      เข้างาน เริ่ม
+                    </label>
+                    <input
+                      type="time"
+                      value={settings.check_in_start}
+                      onChange={(e) =>
+                        setSettings((s) => ({
+                          ...s,
+                          check_in_start: e.target.value,
+                        }))
+                      }
+                      className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">
+                      เข้างาน สิ้นสุด
+                    </label>
+                    <input
+                      type="time"
+                      value={settings.check_in_end}
+                      onChange={(e) =>
+                        setSettings((s) => ({ ...s, check_in_end: e.target.value }))
+                      }
+                      className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">
+                      ออกงาน เริ่ม
+                    </label>
+                    <input
+                      type="time"
+                      value={settings.check_out_start}
+                      onChange={(e) =>
+                        setSettings((s) => ({
+                          ...s,
+                          check_out_start: e.target.value,
+                        }))
+                      }
+                      className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">
+                      ออกงาน สิ้นสุด
+                    </label>
+                    <input
+                      type="time"
+                      value={settings.check_out_end}
+                      onChange={(e) =>
+                        setSettings((s) => ({
+                          ...s,
+                          check_out_end: e.target.value,
+                        }))
+                      }
+                      className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+                    />
+                  </div>
+                </div>
 
                 <Button
                   onClick={handleSaveSettings}
                   disabled={saving}
-                  variant="outline"
-                  className="w-full mt-4"
-                  size="sm"
+                  className="w-full"
                 >
                   {saving ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
                     <Save className="w-4 h-4 mr-2" />
                   )}
-                  บันทึกสิทธิ์ Admin
+                  บันทึกการตั้งค่า
                 </Button>
+
                 {saveMsg && (
                   <p
-                    className={`text-xs text-center mt-2 ${
+                    className={`text-sm text-center ${
                       saveMsg.includes('สำเร็จ') ? 'text-green-600' : 'text-red-600'
                     }`}
                   >
@@ -574,146 +694,6 @@ export default function AdminPage() {
                   </p>
                 )}
               </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Settings Tab */}
-        {tab === 'settings' && (
-          <Card className="border-gray-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Settings className="w-4 h-4 text-cyan-500" />
-                ตั้งค่าระบบ
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-medium text-gray-900">Geofence</div>
-                  <div className="text-xs text-gray-400">
-                    บังคับสแกนในรัศมีหน่วยบริการ
-                  </div>
-                </div>
-                <button
-                  onClick={() =>
-                    setSettings((s) => ({
-                      ...s,
-                      geofence_enabled:
-                        s.geofence_enabled === 'true' ? 'false' : 'true',
-                    }))
-                  }
-                  className={`relative w-12 h-7 rounded-full transition-colors ${
-                    settings.geofence_enabled === 'true'
-                      ? 'bg-cyan-500'
-                      : 'bg-gray-200'
-                  }`}
-                >
-                  <div
-                    className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${
-                      settings.geofence_enabled === 'true'
-                        ? 'translate-x-5'
-                        : 'translate-x-0.5'
-                    }`}
-                  />
-                </button>
-              </div>
-
-              {settings.geofence_enabled === 'true' && (
-                <div>
-                  <label className="text-sm font-medium text-gray-900">
-                    รัศมี Geofence (เมตร)
-                  </label>
-                  <input
-                    type="number"
-                    value={settings.geofence_radius}
-                    onChange={(e) =>
-                      setSettings((s) => ({ ...s, geofence_radius: e.target.value }))
-                    }
-                    className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
-                    min="50"
-                    max="5000"
-                  />
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-500">
-                    เข้างาน เริ่ม
-                  </label>
-                  <input
-                    type="time"
-                    value={settings.check_in_start}
-                    onChange={(e) =>
-                      setSettings((s) => ({ ...s, check_in_start: e.target.value }))
-                    }
-                    className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500">
-                    เข้างาน สิ้นสุด
-                  </label>
-                  <input
-                    type="time"
-                    value={settings.check_in_end}
-                    onChange={(e) =>
-                      setSettings((s) => ({ ...s, check_in_end: e.target.value }))
-                    }
-                    className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500">
-                    ออกงาน เริ่ม
-                  </label>
-                  <input
-                    type="time"
-                    value={settings.check_out_start}
-                    onChange={(e) =>
-                      setSettings((s) => ({ ...s, check_out_start: e.target.value }))
-                    }
-                    className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500">
-                    ออกงาน สิ้นสุด
-                  </label>
-                  <input
-                    type="time"
-                    value={settings.check_out_end}
-                    onChange={(e) =>
-                      setSettings((s) => ({ ...s, check_out_end: e.target.value }))
-                    }
-                    className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
-                  />
-                </div>
-              </div>
-
-              <Button
-                onClick={handleSaveSettings}
-                disabled={saving}
-                className="w-full"
-              >
-                {saving ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4 mr-2" />
-                )}
-                บันทึกการตั้งค่า
-              </Button>
-
-              {saveMsg && (
-                <p
-                  className={`text-sm text-center ${
-                    saveMsg.includes('สำเร็จ') ? 'text-green-600' : 'text-red-600'
-                  }`}
-                >
-                  {saveMsg}
-                </p>
-              )}
             </CardContent>
           </Card>
         )}
