@@ -151,14 +151,18 @@ export default function DashboardView({
     }
   }, [managementIds, teacherServicePointMap])
 
-  // Student filter (by teacher_name → service_point_id mapping)
+  // Student filter — prefer the row's own service_point_id (set on scan),
+  // fall back to teacher_name → service_point_id mapping for legacy rows.
   const filteredAttendance =
     selectedSP === 'all'
       ? initialAttendance
       : initialAttendance.filter((record) => {
+          const directSP = (record as any).service_point_id as string | null
+          if (directSP) return directSP === selectedSP
           const teacherName = (record as any).teacher_name as string | null
-          if (!teacherName) return false
-          return teacherServicePointMap[teacherName] === selectedSP
+          return teacherName
+            ? teacherServicePointMap[teacherName] === selectedSP
+            : false
         })
 
   // Teacher filter (by service_point_id directly on the row)
@@ -170,11 +174,13 @@ export default function DashboardView({
   // Counts for service-point dropdown badges (student tab only)
   const spCounts: Record<string, number> = {}
   for (const record of initialAttendance) {
-    const teacherName = (record as any).teacher_name as string | null
-    if (teacherName && teacherServicePointMap[teacherName]) {
-      const spId = teacherServicePointMap[teacherName]
-      spCounts[spId] = (spCounts[spId] || 0) + 1
+    const directSP = (record as any).service_point_id as string | null
+    let spId: string | undefined = directSP || undefined
+    if (!spId) {
+      const teacherName = (record as any).teacher_name as string | null
+      if (teacherName) spId = teacherServicePointMap[teacherName]
     }
+    if (spId) spCounts[spId] = (spCounts[spId] || 0) + 1
   }
 
   const filteredTotalStudents =

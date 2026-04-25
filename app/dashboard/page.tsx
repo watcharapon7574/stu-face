@@ -64,6 +64,7 @@ export default async function DashboardPage() {
     studentsResult,
     servicePointsResult,
     profilesResult,
+    teacherFacesResult,
   ] = await Promise.all([
     supabaseServer
       .from('std_attendance' as any)
@@ -91,6 +92,10 @@ export default async function DashboardPage() {
       .select('id, prefix, first_name, last_name, nickname, workplace, position')
       .not('first_name', 'eq', '')
       .order('first_name'),
+    supabaseServer
+      .from('std_teacher_faces' as any)
+      .select('teacher_id, is_admin')
+      .eq('is_admin', true),
   ])
 
   if (attendanceResult.error) {
@@ -148,9 +153,16 @@ export default async function DashboardPage() {
   }
 
   // Build list of management teacher IDs for client-side check
-  const managementIds = profiles
+  // (also treat std_teacher_faces.is_admin as management for full visibility)
+  const positionMgmtIds = profiles
     .filter((p) => p.position && MANAGEMENT_POSITIONS.includes(p.position))
     .map((p) => p.id)
+  const adminTeacherIds = (teacherFacesResult.data || []).map(
+    (f: any) => f.teacher_id as string
+  )
+  const managementIds = Array.from(
+    new Set([...positionMgmtIds, ...adminTeacherIds])
+  )
 
   return (
     <main className="min-h-screen p-4 md:p-8">
