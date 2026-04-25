@@ -1,6 +1,9 @@
 import { supabaseServer } from '@/lib/supabase/server'
 import DashboardView from '@/components/dashboard/dashboard-view'
 
+// Always fetch fresh data — dashboard reflects today's attendance state
+export const dynamic = 'force-dynamic'
+
 // Keywords that indicate the teacher works at headquarters
 const HQ_KEYWORDS = ['ห้อง', 'ห้องเรียน', 'Admin', 'ศูนย์การศึกษา']
 
