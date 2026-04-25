@@ -30,6 +30,7 @@ type FlowState =
   | 'not_logged_in'
   | 'not_enrolled'
   | 'select_type'
+  | 'enter_late_reason'
   | 'scanning'
   | 'success'
 
@@ -73,9 +74,19 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
   const [locationStatus, setLocationStatus] = useState<LocationStatus>('loading')
   const [nearestPoint, setNearestPoint] = useState<ServicePointInfo | null>(null)
   const [distanceToNearest, setDistanceToNearest] = useState<number | null>(null)
-  const [geofenceRadius, setGeofenceRadius] = useState(200)
   const [geofenceEnabled, setGeofenceEnabled] = useState(true)
   const [servicePoints, setServicePoints] = useState<ServicePointInfo[]>([])
+
+  // Time windows (from settings)
+  const [timeSettings, setTimeSettings] = useState({
+    check_in_start: '07:00',
+    check_in_end: '09:30',
+    check_out_start: '15:30',
+    check_out_end: '22:00',
+  })
+
+  // Late reason flow
+  const [lateReason, setLateReason] = useState('')
 
   const today = new Date().toISOString().split('T')[0]
 
@@ -111,7 +122,12 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
       // Settings
       if (data.settings) {
         setGeofenceEnabled(data.settings.geofence_enabled)
-        setGeofenceRadius(data.settings.geofence_radius)
+        setTimeSettings({
+          check_in_start: data.settings.check_in_start,
+          check_in_end: data.settings.check_in_end,
+          check_out_start: data.settings.check_out_start,
+          check_out_end: data.settings.check_out_end,
+        })
       }
 
       // Service points
@@ -121,7 +137,7 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
 
       // Geofencing check
       if (data.settings?.geofence_enabled && data.service_points?.length > 0) {
-        checkGeofence(data.service_points, data.settings.geofence_radius)
+        checkGeofence(data.service_points)
       } else {
         setLocationStatus('disabled')
       }
@@ -160,7 +176,7 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
     }
   }
 
-  const checkGeofence = async (points: ServicePointInfo[], radius: number) => {
+  const checkGeofence = async (points: ServicePointInfo[]) => {
     setLocationStatus('loading')
     try {
       const pos = await getCurrentPosition()
@@ -181,12 +197,7 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
       setNearestPoint(nearest)
       setDistanceToNearest(Math.round(minDist))
 
-      // Use service point's own radius or global setting
-      const effectiveRadius = nearest?.radius_meters
-        ? Math.max(nearest.radius_meters, radius)
-        : radius
-
-      if (minDist <= effectiveRadius) {
+      if (nearest && minDist <= nearest.radius_meters) {
         setLocationStatus('in_range')
       } else {
         setLocationStatus('out_of_range')
@@ -200,11 +211,52 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
     // Block if out of range and geofence enabled
     if (geofenceEnabled && locationStatus === 'out_of_range') {
       setError(
-        `อยู่นอกรัศมี${nearestPoint?.short_name || 'หน่วยบริการ'} (${distanceToNearest}m / ${geofenceRadius}m) ไม่สามารถสแกนได้`
+        `อยู่นอกรัศมี${nearestPoint?.short_name || 'หน่วยบริการ'} (${distanceToNearest}m / ${nearestPoint?.radius_meters ?? 0}m) ไม่สามารถสแกนได้`
       )
       return
     }
+
+    // Time-window check for check_in
+    if (type === 'check_in') {
+      const toMin = (t: string) => {
+        const [h, m] = t.split(':').map(Number)
+        return h * 60 + m
+      }
+      const now = new Date()
+      const nowM = now.getHours() * 60 + now.getMinutes()
+      const startM = toMin(timeSettings.check_in_start)
+      const endM = toMin(timeSettings.check_in_end)
+      const cutoffM = toMin(timeSettings.check_out_start)
+
+      if (nowM < startM) {
+        setError(`ยังไม่ถึงเวลาเข้างาน (เริ่ม ${timeSettings.check_in_start})`)
+        return
+      }
+      if (nowM >= cutoffM) {
+        setError(`เลยเวลาเข้างานแล้ว (ปิดรับเวลา ${timeSettings.check_out_start})`)
+        return
+      }
+      if (nowM > endM) {
+        // Late — collect reason before scanning
+        setCheckType(type)
+        setLateReason('')
+        setError(null)
+        setState('enter_late_reason')
+        return
+      }
+    }
+
     setCheckType(type)
+    setLateReason('')
+    setError(null)
+    setState('scanning')
+  }
+
+  const handleLateReasonSubmit = () => {
+    if (!lateReason.trim()) {
+      setError('กรุณาระบุเหตุผลที่มาสาย')
+      return
+    }
     setError(null)
     setState('scanning')
   }
@@ -320,7 +372,7 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
             <div className="inline-flex items-center gap-2 bg-red-50 rounded-full px-3 py-1.5 border border-red-200">
               <MapPinOff className="w-3.5 h-3.5 text-red-500" />
               <span className="text-xs text-red-700">
-                ห่างจาก {nearestPoint.short_name} {distanceToNearest}m (เกิน {geofenceRadius}m)
+                ห่างจาก {nearestPoint.short_name} {distanceToNearest}m (เกิน {nearestPoint.radius_meters}m)
               </span>
             </div>
           )}
@@ -367,6 +419,52 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
         </>
       )}
 
+      {/* Late reason input */}
+      {state === 'enter_late_reason' && (
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardContent className="py-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-base font-semibold text-amber-900">มาสาย</h3>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  เลยเวลาเข้างานปกติ ({timeSettings.check_in_end}) — กรุณาระบุเหตุผล
+                </p>
+              </div>
+            </div>
+            <textarea
+              value={lateReason}
+              onChange={(e) => setLateReason(e.target.value)}
+              placeholder="เช่น รถติด, มีนัดหมอ, ส่งลูกที่โรงเรียน..."
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 bg-white"
+              maxLength={300}
+            />
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-xl text-sm text-center">
+                {error}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Button
+                onClick={() => {
+                  setLateReason('')
+                  setError(null)
+                  setState('select_type')
+                }}
+                variant="outline"
+                className="flex-1"
+              >
+                ยกเลิก
+              </Button>
+              <Button onClick={handleLateReasonSubmit} className="flex-1">
+                ดำเนินการต่อ
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Face scanning */}
       {state === 'scanning' && teacher && (
         <>
@@ -376,6 +474,7 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
             date={today}
             deviceFingerprint={deviceFP}
             servicePointId={nearestPoint?.id}
+            lateReason={lateReason || null}
             onSuccess={handleScanSuccess}
             onError={handleScanError}
           />
@@ -416,6 +515,12 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
                 <span className="flex items-center gap-1 text-green-600">
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   ใบหน้าจริง
+                </span>
+              )}
+              {result.is_late && (
+                <span className="flex items-center gap-1 text-amber-600">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  มาสาย
                 </span>
               )}
             </div>

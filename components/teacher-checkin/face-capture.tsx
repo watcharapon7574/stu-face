@@ -12,6 +12,7 @@ interface FaceCaptureProps {
   date: string
   deviceFingerprint: string
   servicePointId?: string | null
+  lateReason?: string | null
   onSuccess: (result: VerifyResult) => void
   onError: (message: string) => void
 }
@@ -24,6 +25,7 @@ export interface VerifyResult {
   spoofing_scores: number[]
   frame_results: { total: number; real: number; matched: number }
   attendance_saved: boolean
+  is_late?: boolean
   message: string
 }
 
@@ -35,6 +37,7 @@ export default function FaceCapture({
   date,
   deviceFingerprint,
   servicePointId,
+  lateReason,
   onSuccess,
   onError,
 }: FaceCaptureProps) {
@@ -241,6 +244,7 @@ export default function FaceCapture({
           service_point_id: servicePointId || null,
           check_type: checkType,
           date,
+          late_reason: lateReason || null,
         }),
       })
 

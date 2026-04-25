@@ -58,7 +58,6 @@ export async function GET(request: Request) {
       service_point_id: faceData?.service_point_id || null,
       settings: {
         geofence_enabled: settings.geofence_enabled === 'true',
-        geofence_radius: parseInt(settings.geofence_radius || '200'),
         check_in_start: settings.check_in_start || '07:00',
         check_in_end: settings.check_in_end || '09:30',
         check_out_start: settings.check_out_start || '15:30',

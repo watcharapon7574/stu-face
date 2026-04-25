@@ -52,6 +52,8 @@ interface TeacherInfo {
   checked_out: boolean
   check_in_time: string | null
   check_out_time: string | null
+  is_late: boolean
+  late_reason: string | null
 }
 
 interface StudentInfo {
@@ -97,7 +99,6 @@ export default function AdminPage() {
   >([])
   const [settings, setSettings] = useState({
     geofence_enabled: 'true',
-    geofence_radius: '200',
     check_in_start: '07:00',
     check_in_end: '09:30',
     check_out_start: '15:30',
@@ -401,7 +402,20 @@ export default function AdminPage() {
                           >
                             {formatTime(t.check_in_time)} → {formatTime(t.check_out_time)}
                           </span>
+                          {t.is_late && (
+                            <span
+                              className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full"
+                              title={t.late_reason || ''}
+                            >
+                              สาย
+                            </span>
+                          )}
                         </div>
+                        {t.is_late && t.late_reason && (
+                          <div className="text-[11px] text-amber-700/80 mt-1 italic truncate">
+                            “{t.late_reason}”
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-0.5 shrink-0">
                         <button
@@ -517,27 +531,6 @@ export default function AdminPage() {
                     />
                   </button>
                 </div>
-
-                {settings.geofence_enabled === 'true' && (
-                  <div>
-                    <label className="text-sm font-medium text-gray-900">
-                      รัศมี Geofence (เมตร)
-                    </label>
-                    <input
-                      type="number"
-                      value={settings.geofence_radius}
-                      onChange={(e) =>
-                        setSettings((s) => ({
-                          ...s,
-                          geofence_radius: e.target.value,
-                        }))
-                      }
-                      className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
-                      min="50"
-                      max="5000"
-                    />
-                  </div>
-                )}
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>

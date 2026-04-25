@@ -80,6 +80,8 @@ export interface Database {
           anti_spoof_score_out: number | null
           device_fingerprint: string | null
           service_point_id: string | null
+          is_late: boolean
+          late_reason: string | null
           created_at: string
           updated_at: string
         }
@@ -95,6 +97,8 @@ export interface Database {
           anti_spoof_score_out?: number | null
           device_fingerprint?: string | null
           service_point_id?: string | null
+          is_late?: boolean
+          late_reason?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -110,6 +114,8 @@ export interface Database {
           anti_spoof_score_out?: number | null
           device_fingerprint?: string | null
           service_point_id?: string | null
+          is_late?: boolean
+          late_reason?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -176,7 +182,6 @@ export type TeacherAttendance = Database['public']['Tables']['std_teacher_attend
 
 export interface TeacherSettings {
   geofence_enabled: boolean
-  geofence_radius: number
   check_in_start: string
   check_in_end: string
   check_out_start: string

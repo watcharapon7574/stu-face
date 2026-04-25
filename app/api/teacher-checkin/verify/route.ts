@@ -30,6 +30,7 @@ export async function POST(request: Request) {
       service_point_id,
       check_type,
       date,
+      late_reason,
     } = body
 
     if (!teacher_id || !Array.isArray(embedding) || !check_type || !date) {
@@ -41,6 +42,64 @@ export async function POST(request: Request) {
         },
         { status: 400 }
       )
+    }
+
+    // Time-window enforcement for check-in (read settings)
+    const isCheckInRequest = check_type === 'check_in'
+    let willBeLate = false
+    if (isCheckInRequest) {
+      const { data: settingsData } = await supabaseServer
+        .from('std_teacher_settings' as any)
+        .select('key, value')
+        .in('key', ['check_in_start', 'check_in_end', 'check_out_start'])
+
+      const settings: Record<string, string> = {}
+      for (const s of settingsData || []) settings[s.key] = s.value
+
+      const startStr = settings.check_in_start || '07:00'
+      const endStr = settings.check_in_end || '09:30'
+      const cutoffStr = settings.check_out_start || '15:30'
+
+      // Compare in local Bangkok time (UTC+7)
+      const nowLocal = new Date(Date.now() + 7 * 60 * 60 * 1000)
+      const hh = nowLocal.getUTCHours()
+      const mm = nowLocal.getUTCMinutes()
+      const nowMinutes = hh * 60 + mm
+
+      const toMinutes = (t: string) => {
+        const [h, m] = t.split(':').map(Number)
+        return h * 60 + m
+      }
+
+      const startM = toMinutes(startStr)
+      const endM = toMinutes(endStr)
+      const cutoffM = toMinutes(cutoffStr)
+
+      if (nowMinutes < startM) {
+        return NextResponse.json({
+          matched: false,
+          attendance_saved: false,
+          message: `ยังไม่ถึงเวลาเข้างาน (เริ่ม ${startStr})`,
+        })
+      }
+      if (nowMinutes >= cutoffM) {
+        return NextResponse.json({
+          matched: false,
+          attendance_saved: false,
+          message: `เลยเวลาเข้างานแล้ว (ปิดรับเวลา ${cutoffStr})`,
+        })
+      }
+      if (nowMinutes > endM) {
+        willBeLate = true
+        if (!late_reason || typeof late_reason !== 'string' || !late_reason.trim()) {
+          return NextResponse.json({
+            matched: false,
+            attendance_saved: false,
+            message: 'มาสาย กรุณาระบุเหตุผล',
+            require_late_reason: true,
+          })
+        }
+      }
     }
 
     // Fetch stored embeddings
@@ -95,7 +154,13 @@ export async function POST(request: Request) {
       .maybeSingle()
 
     const timeFields = isCheckIn
-      ? { check_in: now, confidence_in: maxSim, anti_spoof_score_in: 1 }
+      ? {
+          check_in: now,
+          confidence_in: maxSim,
+          anti_spoof_score_in: 1,
+          is_late: willBeLate,
+          late_reason: willBeLate ? (late_reason as string).trim() : null,
+        }
       : { check_out: now, confidence_out: maxSim, anti_spoof_score_out: 1 }
 
     const optionalFields: Record<string, unknown> = {}
@@ -128,7 +193,12 @@ export async function POST(request: Request) {
       anti_spoof_score: 1,
       spoofing_scores: [0],
       frame_results: { total: 1, real: 1, matched: 1 },
-      message: isCheckIn ? 'สแกนเข้างานสำเร็จ' : 'สแกนออกงานสำเร็จ',
+      is_late: willBeLate,
+      message: isCheckIn
+        ? willBeLate
+          ? 'สแกนเข้างานสำเร็จ (บันทึกว่ามาสาย)'
+          : 'สแกนเข้างานสำเร็จ'
+        : 'สแกนออกงานสำเร็จ',
     })
   } catch (error) {
     console.error('Verify route error:', error)

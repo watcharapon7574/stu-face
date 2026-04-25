@@ -101,6 +101,8 @@ export async function GET(request: Request) {
         checked_out: !!att?.check_out,
         check_in_time: att?.check_in || null,
         check_out_time: att?.check_out || null,
+        is_late: !!att?.is_late,
+        late_reason: att?.late_reason || null,
       }
     })
 
