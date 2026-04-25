@@ -16,7 +16,6 @@ import {
   Pencil,
   UserPlus,
   GraduationCap,
-  Plus,
 } from 'lucide-react'
 import { getSavedTeacher } from '@/lib/teacher-store'
 import FaceCaptureModal from '@/components/admin/face-capture-modal'
@@ -101,16 +100,11 @@ export default function AdminPage() {
     | { kind: 'student'; id: string; name: string }
     | null
   >(null)
-  const [studentModal, setStudentModal] = useState<
-    | { mode: 'add' }
-    | { mode: 'edit'; student: StudentInfo }
-    | null
-  >(null)
-  const [addTeacherOpen, setAddTeacherOpen] = useState(false)
-  const [pendingFaceForNewStudent, setPendingFaceForNewStudent] = useState<{
-    id: string
-    name: string
+  const [studentModal, setStudentModal] = useState<{
+    mode: 'edit'
+    student: StudentInfo
   } | null>(null)
+  const [addTeacherOpen, setAddTeacherOpen] = useState(false)
 
   const teacher = getSavedTeacher()
 
@@ -206,45 +200,15 @@ export default function AdminPage() {
 
   // --- Student actions ---
   const handleStudentSave = async (data: StudentFormData) => {
-    const isEdit = studentModal?.mode === 'edit'
-    if (isEdit && studentModal.mode === 'edit') {
-      const res = await fetch(`/api/students/${studentModal.student.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      })
-      if (!res.ok) throw new Error('failed')
-      setStudentModal(null)
-      await fetchData()
-    } else {
-      const res = await fetch('/api/students', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: data.name,
-          nickname: data.nickname,
-          service_point: data.service_point_id,
-        }),
-      })
-      if (!res.ok) throw new Error('failed')
-      const { student } = await res.json()
-
-      // After fields saved, also patch fields not handled by POST
-      await fetch(`/api/students/${student.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date_of_birth: data.date_of_birth,
-          service_point_id: data.service_point_id,
-          is_active: data.is_active,
-        }),
-      })
-
-      setStudentModal(null)
-      // Prompt face capture for the new student
-      setPendingFaceForNewStudent({ id: student.id, name: data.name })
-      await fetchData()
-    }
+    if (!studentModal) return
+    const res = await fetch(`/api/students/${studentModal.student.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+    if (!res.ok) throw new Error('failed')
+    setStudentModal(null)
+    await fetchData()
   }
 
   const handleStudentFaceUpdate = async (
@@ -258,7 +222,6 @@ export default function AdminPage() {
     })
     if (!res.ok) throw new Error('failed')
     setFaceModal(null)
-    setPendingFaceForNewStudent(null)
     await fetchData()
   }
 
@@ -617,15 +580,17 @@ export default function AdminPage() {
         {/* Students Tab */}
         {tab === 'students' && (
           <Card className="border-gray-200">
-            <CardHeader className="pb-2 flex-row items-center justify-between space-y-0">
+            <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <GraduationCap className="w-4 h-4 text-cyan-500" />
                 รายชื่อนักเรียน ({students.length})
               </CardTitle>
-              <Button size="sm" onClick={() => setStudentModal({ mode: 'add' })}>
-                <Plus className="w-4 h-4 mr-1" />
-                เพิ่ม
-              </Button>
+              <p className="text-xs text-gray-400 mt-1">
+                เพิ่มนักเรียนใหม่ที่หน้า{' '}
+                <a href="/setup" className="text-cyan-600 hover:underline">
+                  /setup
+                </a>
+              </p>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
@@ -796,22 +761,10 @@ export default function AdminPage() {
         />
       )}
 
-      {pendingFaceForNewStudent && (
-        <FaceCaptureModal
-          title={`ลงทะเบียนใบหน้า: ${pendingFaceForNewStudent.name}`}
-          subtitle="ถ่ายรูป 5 มุม"
-          frameCount={5}
-          onClose={() => setPendingFaceForNewStudent(null)}
-          onComplete={async (embs) => {
-            await handleStudentFaceUpdate(pendingFaceForNewStudent.id, embs)
-          }}
-        />
-      )}
-
       {studentModal && (
         <StudentFormModal
-          mode={studentModal.mode}
-          initial={studentModal.mode === 'edit' ? studentModal.student : undefined}
+          mode="edit"
+          initial={studentModal.student}
           servicePoints={servicePoints}
           onClose={() => setStudentModal(null)}
           onSave={handleStudentSave}
