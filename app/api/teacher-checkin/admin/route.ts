@@ -64,7 +64,8 @@ export async function GET(request: Request) {
     // Service points
     const { data: servicePoints } = await supabaseServer
       .from('std_service_points' as any)
-      .select('id, name, short_name, lat, lng, radius_meters, is_active')
+      .select('id, name, short_name, lat, lng, radius_meters, is_active, is_headquarters')
+      .order('is_headquarters', { ascending: false })
       .order('name')
 
     // Students

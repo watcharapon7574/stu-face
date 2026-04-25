@@ -75,6 +75,7 @@ interface ServicePoint {
   lng: number
   radius_meters: number
   is_active: boolean
+  is_headquarters: boolean
 }
 
 export default function AdminPage() {
@@ -711,81 +712,100 @@ export default function AdminPage() {
         )}
 
         {/* Service Points Tab */}
-        {tab === 'service_points' && (
-          <Card className="border-gray-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-cyan-500" />
-                หน่วยบริการ ({servicePoints.length})
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {servicePoints.map((sp, idx) => (
-                  <div key={sp.id} className="p-3 bg-gray-50 rounded-xl space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">
-                          {sp.short_name}
-                        </div>
-                        <div className="text-xs text-gray-400">
-                          {sp.lat.toFixed(4)}, {sp.lng.toFixed(4)}
-                        </div>
-                      </div>
-                      <div
-                        className={`w-2.5 h-2.5 rounded-full ${
-                          sp.is_active ? 'bg-green-400' : 'bg-gray-300'
-                        }`}
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs text-gray-500 whitespace-nowrap">
-                        รัศมี (m)
-                      </label>
-                      <input
-                        type="number"
-                        value={sp.radius_meters}
-                        onChange={(e) => {
-                          const updated = [...servicePoints]
-                          updated[idx] = {
-                            ...sp,
-                            radius_meters: parseInt(e.target.value) || 50,
-                          }
-                          setServicePoints(updated)
-                        }}
-                        className="flex-1 px-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
-                        min="50"
-                        max="5000"
-                      />
-                    </div>
+        {tab === 'service_points' && (() => {
+          const hqList = servicePoints.filter((sp) => sp.is_headquarters)
+          const branchList = servicePoints.filter((sp) => !sp.is_headquarters)
+          const updateRadius = (id: string, radius: number) => {
+            setServicePoints((prev) =>
+              prev.map((p) => (p.id === id ? { ...p, radius_meters: radius } : p))
+            )
+          }
+          const renderItem = (sp: ServicePoint) => (
+            <div key={sp.id} className="p-3 bg-gray-50 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium text-gray-900">
+                    {sp.short_name}
                   </div>
-                ))}
-              </div>
-
-              <Button
-                onClick={handleSaveSettings}
-                disabled={saving}
-                className="w-full mt-4"
-              >
-                {saving ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4 mr-2" />
-                )}
-                บันทึกรัศมี
-              </Button>
-              {saveMsg && (
-                <p
-                  className={`text-sm text-center mt-2 ${
-                    saveMsg.includes('สำเร็จ') ? 'text-green-600' : 'text-red-600'
+                  <div className="text-xs text-gray-400">
+                    {sp.lat.toFixed(4)}, {sp.lng.toFixed(4)}
+                  </div>
+                </div>
+                <div
+                  className={`w-2.5 h-2.5 rounded-full ${
+                    sp.is_active ? 'bg-green-400' : 'bg-gray-300'
                   }`}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-500 whitespace-nowrap">
+                  รัศมี (m)
+                </label>
+                <input
+                  type="number"
+                  value={sp.radius_meters}
+                  onChange={(e) =>
+                    updateRadius(sp.id, parseInt(e.target.value) || 50)
+                  }
+                  className="flex-1 px-2 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+                  min="50"
+                  max="5000"
+                />
+              </div>
+            </div>
+          )
+          return (
+            <Card className="border-gray-200">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-cyan-500" />
+                  หน่วยบริการ ({branchList.length}) · ศูนย์ ({hqList.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {hqList.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold text-cyan-700 uppercase tracking-wide">
+                      ศูนย์ ({hqList.length})
+                    </div>
+                    {hqList.map(renderItem)}
+                  </div>
+                )}
+
+                {branchList.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      หน่วยบริการ ({branchList.length})
+                    </div>
+                    {branchList.map(renderItem)}
+                  </div>
+                )}
+
+                <Button
+                  onClick={handleSaveSettings}
+                  disabled={saving}
+                  className="w-full"
                 >
-                  {saveMsg}
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        )}
+                  {saving ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4 mr-2" />
+                  )}
+                  บันทึกรัศมี
+                </Button>
+                {saveMsg && (
+                  <p
+                    className={`text-sm text-center ${
+                      saveMsg.includes('สำเร็จ') ? 'text-green-600' : 'text-red-600'
+                    }`}
+                  >
+                    {saveMsg}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )
+        })()}
       </div>
 
       {/* Modals */}
