@@ -14,6 +14,7 @@ import {
   Clock,
 } from 'lucide-react'
 import { getSavedTeacher } from '@/lib/teacher-store'
+import { supabase } from '@/lib/supabase/client'
 import type { AttendanceWithRelations } from '@/types/database'
 
 interface ServicePoint {
@@ -44,6 +45,7 @@ interface DashboardViewProps {
   totalTeachers: number
   servicePoints: ServicePoint[]
   teacherServicePointMap: Record<string, string>
+  teacherProfileLookup: Record<string, { name: string; nickname: string | null }>
   managementIds: string[]
 }
 
@@ -65,6 +67,7 @@ export default function DashboardView({
   totalTeachers,
   servicePoints,
   teacherServicePointMap,
+  teacherProfileLookup,
   managementIds,
 }: DashboardViewProps) {
   const [tab, setTab] = useState<Tab>('student')
@@ -72,6 +75,64 @@ export default function DashboardView({
   const [selectedSP, setSelectedSP] = useState<string>('all')
   const [isManagement, setIsManagement] = useState(false)
   const [teacherSPId, setTeacherSPId] = useState<string | null>(null)
+  const [teacherRows, setTeacherRows] =
+    useState<TeacherAttendanceRow[]>(initialTeacherAttendance)
+
+  // Realtime subscription for teacher attendance (today only)
+  useEffect(() => {
+    setTeacherRows(initialTeacherAttendance)
+
+    if (selectedDate !== initialDate) return
+
+    const channel = supabase
+      .channel('teacher-attendance-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'std_teacher_attendance',
+          filter: `date=eq.${selectedDate}`,
+        },
+        (payload) => {
+          if (payload.eventType === 'DELETE') {
+            const oldId = (payload.old as { id?: string }).id
+            if (oldId) {
+              setTeacherRows((prev) => prev.filter((r) => r.id !== oldId))
+            }
+            return
+          }
+          const row = payload.new as Record<string, unknown>
+          const profile = teacherProfileLookup[row.teacher_id as string]
+          const updated: TeacherAttendanceRow = {
+            id: row.id as string,
+            teacher_id: row.teacher_id as string,
+            teacher_name: profile?.name || 'ไม่ทราบ',
+            teacher_nickname: profile?.nickname || null,
+            check_in: (row.check_in as string | null) ?? null,
+            check_out: (row.check_out as string | null) ?? null,
+            service_point_id: (row.service_point_id as string | null) ?? null,
+            auto_checkout: !!row.auto_checkout,
+            is_late: !!row.is_late,
+            late_reason: (row.late_reason as string | null) ?? null,
+          }
+          setTeacherRows((prev) => {
+            const idx = prev.findIndex((r) => r.id === updated.id)
+            if (idx >= 0) {
+              const copy = [...prev]
+              copy[idx] = updated
+              return copy
+            }
+            return [updated, ...prev]
+          })
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [selectedDate, initialDate, initialTeacherAttendance, teacherProfileLookup])
 
   useEffect(() => {
     const teacher = getSavedTeacher()
@@ -102,8 +163,8 @@ export default function DashboardView({
   // Teacher filter (by service_point_id directly on the row)
   const filteredTeacherAttendance =
     selectedSP === 'all'
-      ? initialTeacherAttendance
-      : initialTeacherAttendance.filter((r) => r.service_point_id === selectedSP)
+      ? teacherRows
+      : teacherRows.filter((r) => r.service_point_id === selectedSP)
 
   // Counts for service-point dropdown badges (student tab only)
   const spCounts: Record<string, number> = {}
@@ -190,7 +251,7 @@ export default function DashboardView({
                   ทุกสถานที่ (
                   {tab === 'student'
                     ? `${initialAttendance.length} รายการ`
-                    : `${initialTeacherAttendance.length} ครู`}
+                    : `${teacherRows.length} ครู`}
                   )
                 </option>
                 {servicePoints.map((sp) => (

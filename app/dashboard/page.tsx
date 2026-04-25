@@ -116,6 +116,15 @@ export default async function DashboardPage() {
     }
   })
 
+  // Profile lookup for realtime updates (teacher_id → name/nickname)
+  const teacherProfileLookup: Record<string, { name: string; nickname: string | null }> = {}
+  for (const p of profiles) {
+    teacherProfileLookup[p.id] = {
+      name: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
+      nickname: p.nickname,
+    }
+  }
+
   // Build teacher_name → service_point_id mapping
   const teacherServicePointMap: Record<string, string> = {}
   // Build teacher_id → position mapping (for management check)
@@ -147,6 +156,7 @@ export default async function DashboardPage() {
         totalTeachers={profiles.length}
         servicePoints={servicePoints}
         teacherServicePointMap={teacherServicePointMap}
+        teacherProfileLookup={teacherProfileLookup}
         managementIds={managementIds}
       />
     </main>
