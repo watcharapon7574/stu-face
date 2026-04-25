@@ -66,6 +66,8 @@ export async function POST(request: Request) {
       confidence,
       method,
       service_point_id,
+      lat,
+      lng,
     } = body as {
       student_id: string
       teacher_name?: string
@@ -74,6 +76,8 @@ export async function POST(request: Request) {
       confidence?: number
       method: AttendanceMethod
       service_point_id?: string
+      lat?: number | null
+      lng?: number | null
     }
 
     if (!student_id || !date || !type) {
@@ -105,6 +109,8 @@ export async function POST(request: Request) {
             confidence_in: confidence,
             method_in: method,
             teacher_name: teacher_name || existing.teacher_name,
+            check_in_lat: lat ?? null,
+            check_in_lng: lng ?? null,
           })
           .eq('id', existing.id)
           .select(`
@@ -122,6 +128,8 @@ export async function POST(request: Request) {
             check_out: now,
             confidence_out: confidence,
             method_out: method,
+            check_out_lat: lat ?? null,
+            check_out_lng: lng ?? null,
           })
           .eq('id', existing.id)
           .select(`
@@ -146,10 +154,14 @@ export async function POST(request: Request) {
         insertData.check_in = now
         insertData.confidence_in = confidence
         insertData.method_in = method
+        insertData.check_in_lat = lat ?? null
+        insertData.check_in_lng = lng ?? null
       } else {
         insertData.check_out = now
         insertData.confidence_out = confidence
         insertData.method_out = method
+        insertData.check_out_lat = lat ?? null
+        insertData.check_out_lng = lng ?? null
       }
 
       const { data, error } = await supabaseServer

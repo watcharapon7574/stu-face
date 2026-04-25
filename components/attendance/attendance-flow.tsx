@@ -19,6 +19,7 @@ function useLocationDetection(servicePoints: ServicePoint[]) {
   const [status, setStatus] = useState<'loading' | 'found' | 'out_of_range' | 'error'>('loading')
   const [matched, setMatched] = useState<ServicePoint | null>(null)
   const [closest, setClosest] = useState<{ point: ServicePoint; distance: number } | null>(null)
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
 
   useEffect(() => {
     if (servicePoints.length === 0) return
@@ -26,6 +27,7 @@ function useLocationDetection(servicePoints: ServicePoint[]) {
     getCurrentPosition()
       .then((pos) => {
         const { latitude, longitude } = pos.coords
+        setCoords({ lat: latitude, lng: longitude })
         const match = findNearestServicePoint(latitude, longitude, servicePoints)
         const near = findClosestServicePoint(latitude, longitude, servicePoints)
         setClosest(near)
@@ -42,7 +44,7 @@ function useLocationDetection(servicePoints: ServicePoint[]) {
       })
   }, [servicePoints])
 
-  return { status, matched, closest }
+  return { status, matched, closest, coords }
 }
 
 // --- OTP Login ---
@@ -454,7 +456,7 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
   const [updatingStudent, setUpdatingStudent] = useState<Student | null>(null)
   const [teacher, setTeacher] = useState<SavedTeacher | null>(null)
-  const { status, matched, closest } = useLocationDetection(servicePoints)
+  const { status, matched, closest, coords } = useLocationDetection(servicePoints)
 
   // Load saved teacher from localStorage on mount
   useEffect(() => {
@@ -504,6 +506,8 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
           method,
           service_point_id: matched?.id || null,
           teacher_name: teacher?.name || null,
+          lat: coords?.lat ?? null,
+          lng: coords?.lng ?? null,
         }),
       })
 
