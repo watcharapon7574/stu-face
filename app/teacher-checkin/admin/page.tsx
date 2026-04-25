@@ -195,14 +195,9 @@ export default function AdminPage() {
     if (res.ok) await fetchData()
   }
 
-  const handleAddTeacher = async (
-    profile: CandidateProfile,
-    embeddings: FaceEmbedding[]
-  ) => {
-    const res = await fetch('/api/teacher-checkin/enroll', {
+  const handleAddTeacher = async (profile: CandidateProfile) => {
+    const res = await fetch(`/api/teacher-checkin/teachers/${profile.id}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ teacher_id: profile.id, embeddings }),
     })
     if (!res.ok) throw new Error('failed')
     setAddTeacherOpen(false)
@@ -414,9 +409,15 @@ export default function AdminPage() {
                           >
                             Admin {t.is_admin ? '✓' : ''}
                           </button>
-                          <span className="text-[10px] text-gray-400">
-                            {t.embedding_count} ใบหน้า
-                          </span>
+                          {t.embedding_count === 0 ? (
+                            <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">
+                              รอลงทะเบียน
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-gray-400">
+                              {t.embedding_count} ใบหน้า
+                            </span>
+                          )}
                           <span
                             className={`text-[10px] tabular-nums ${
                               t.check_in_time
@@ -821,7 +822,7 @@ export default function AdminPage() {
         <AddTeacherModal
           candidates={candidates}
           onClose={() => setAddTeacherOpen(false)}
-          onEnrolled={handleAddTeacher}
+          onAdd={handleAddTeacher}
         />
       )}
     </main>
