@@ -3,10 +3,12 @@
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Menu, X, Camera, UserPlus, BarChart3 } from 'lucide-react'
+import { Menu, X, Camera, UserPlus, BarChart3, ScanFace, Bus } from 'lucide-react'
 
 const links = [
   { href: '/', label: 'เช็คชื่อ', icon: Camera },
+  { href: '/teacher-checkin', label: 'ลงชื่อทำงาน', icon: ScanFace },
+  { href: '/pickup', label: 'รับ-ส่ง นักเรียน', icon: Bus },
   { href: '/setup', label: 'ลงทะเบียน', icon: UserPlus },
   { href: '/dashboard', label: 'Dashboard', icon: BarChart3 },
 ]
