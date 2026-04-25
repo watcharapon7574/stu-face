@@ -54,12 +54,25 @@ const MANAGEMENT_POSITIONS = ['director', 'deputy_director', 'assistant_director
 export default async function DashboardPage() {
   const today = new Date().toISOString().split('T')[0]
 
-  const [attendanceResult, studentsResult, servicePointsResult, profilesResult] = await Promise.all([
+  const [
+    attendanceResult,
+    teacherAttendanceResult,
+    studentsResult,
+    servicePointsResult,
+    profilesResult,
+  ] = await Promise.all([
     supabaseServer
       .from('std_attendance' as any)
       .select('*, student:student_id (*)')
       .eq('date', today)
       .order('created_at', { ascending: false }),
+    supabaseServer
+      .from('std_teacher_attendance' as any)
+      .select(
+        'id, teacher_id, date, check_in, check_out, confidence_in, confidence_out, service_point_id, auto_checkout, is_late, late_reason'
+      )
+      .eq('date', today)
+      .order('check_in', { ascending: false, nullsFirst: false }),
     supabaseServer
       .from('std_students' as any)
       .select('id, service_point')
@@ -82,6 +95,26 @@ export default async function DashboardPage() {
 
   const servicePoints = (servicePointsResult.data || []) as ServicePointRow[]
   const profiles = (profilesResult.data || []) as ProfileRow[]
+
+  // Build teacher_id → display info map
+  const profileById = new Map<string, ProfileRow>()
+  for (const p of profiles) profileById.set(p.id, p)
+
+  const teacherAttendance = (teacherAttendanceResult.data || []).map((a: any) => {
+    const p = profileById.get(a.teacher_id)
+    return {
+      id: a.id,
+      teacher_id: a.teacher_id,
+      teacher_name: p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : 'ไม่ทราบ',
+      teacher_nickname: p?.nickname || null,
+      check_in: a.check_in as string | null,
+      check_out: a.check_out as string | null,
+      service_point_id: a.service_point_id as string | null,
+      auto_checkout: !!a.auto_checkout,
+      is_late: !!a.is_late,
+      late_reason: a.late_reason as string | null,
+    }
+  })
 
   // Build teacher_name → service_point_id mapping
   const teacherServicePointMap: Record<string, string> = {}
@@ -108,8 +141,10 @@ export default async function DashboardPage() {
     <main className="min-h-screen p-4 md:p-8">
       <DashboardView
         initialAttendance={attendanceResult.data || []}
+        initialTeacherAttendance={teacherAttendance}
         initialDate={today}
         totalStudents={studentsResult.data?.length || 0}
+        totalTeachers={profiles.length}
         servicePoints={servicePoints}
         teacherServicePointMap={teacherServicePointMap}
         managementIds={managementIds}
