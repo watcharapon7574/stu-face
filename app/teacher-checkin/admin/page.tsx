@@ -16,6 +16,7 @@ import {
   Pencil,
   UserPlus,
   GraduationCap,
+  AlarmClock,
 } from 'lucide-react'
 import { getSavedTeacher } from '@/lib/teacher-store'
 import FaceCaptureModal from '@/components/admin/face-capture-modal'
@@ -85,6 +86,15 @@ export default function AdminPage() {
   const [students, setStudents] = useState<StudentInfo[]>([])
   const [servicePoints, setServicePoints] = useState<ServicePoint[]>([])
   const [candidates, setCandidates] = useState<CandidateProfile[]>([])
+  const [autoCheckouts, setAutoCheckouts] = useState<
+    {
+      teacher_id: string
+      teacher_name: string
+      date: string
+      check_in: string | null
+      check_out: string | null
+    }[]
+  >([])
   const [settings, setSettings] = useState({
     geofence_enabled: 'true',
     geofence_radius: '200',
@@ -131,6 +141,7 @@ export default function AdminPage() {
       setStudents(data.students || [])
       setServicePoints(data.service_points || [])
       setCandidates(data.candidate_profiles || [])
+      setAutoCheckouts(data.auto_checkouts || [])
     } catch {
       setError('ไม่สามารถโหลดข้อมูลได้')
     }
@@ -424,6 +435,48 @@ export default function AdminPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Forgot-checkout list (last 14 days) */}
+            {autoCheckouts.length > 0 && (
+              <Card className="border-amber-200 bg-amber-50/30">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <AlarmClock className="w-4 h-4 text-amber-500" />
+                    ลืมออกงาน ({autoCheckouts.length} ครั้ง / 14 วัน)
+                  </CardTitle>
+                  <p className="text-[11px] text-amber-700 mt-1">
+                    ระบบ auto-checkout ตามเวลา check_out_end ที่ตั้งไว้
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                    {autoCheckouts.map((a, idx) => (
+                      <div
+                        key={`${a.teacher_id}-${a.date}-${idx}`}
+                        className="flex items-center justify-between gap-2 px-3 py-2 bg-white rounded-lg border border-amber-100"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-gray-900 truncate">
+                            {a.teacher_name}
+                          </div>
+                          <div className="text-[10px] text-gray-400">
+                            {new Date(a.date).toLocaleDateString('th-TH', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: '2-digit',
+                            })}
+                          </div>
+                        </div>
+                        <div className="text-[10px] tabular-nums text-gray-500 text-right shrink-0">
+                          {formatTime(a.check_in)} → {formatTime(a.check_out)}
+                          <div className="text-[9px] text-amber-600">auto</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Settings card (moved from settings tab) */}
             <Card className="border-gray-200">

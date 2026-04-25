@@ -50,6 +50,17 @@ export async function GET(request: Request) {
       .select('*')
       .eq('date', today)
 
+    // Recent auto-checkouts (last 14 days)
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 86400000)
+      .toISOString()
+      .split('T')[0]
+    const { data: autoCheckouts } = await supabaseServer
+      .from('std_teacher_attendance' as any)
+      .select('teacher_id, date, check_in, check_out')
+      .eq('auto_checkout', true)
+      .gte('date', fourteenDaysAgo)
+      .order('date', { ascending: false })
+
     // Service points
     const { data: servicePoints } = await supabaseServer
       .from('std_service_points' as any)
@@ -93,9 +104,22 @@ export async function GET(request: Request) {
       }
     })
 
+    const teacherNameById = new Map<string, string>()
+    for (const t of teachers) {
+      teacherNameById.set(t.teacher_id, t.nickname || t.name)
+    }
+    const autoCheckoutList = (autoCheckouts || []).map((a: any) => ({
+      teacher_id: a.teacher_id,
+      teacher_name: teacherNameById.get(a.teacher_id) || 'ไม่ทราบ',
+      date: a.date,
+      check_in: a.check_in,
+      check_out: a.check_out,
+    }))
+
     return NextResponse.json({
       settings: Object.fromEntries((settings || []).map((s: any) => [s.key, s.value])),
       teachers,
+      auto_checkouts: autoCheckoutList,
       students: (students || []).map((s: any) => ({
         ...s,
         embedding_count: Array.isArray(s.face_embeddings) ? s.face_embeddings.length : 0,
