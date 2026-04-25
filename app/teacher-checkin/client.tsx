@@ -157,7 +157,7 @@ function TeacherLogin({ onSelect }: { onSelect: (teacher: SavedTeacher) => void 
 }
 
 export default function CheckinPageClient() {
-  const [, setRefresh] = useState(0)
+  const [refresh, setRefresh] = useState(0)
 
   return (
     <div className="max-w-2xl mx-auto flex flex-col min-h-[calc(100vh-4rem)]">
@@ -172,6 +172,7 @@ export default function CheckinPageClient() {
 
       <div className="mt-4 flex-1">
         <CheckinFlow
+          key={refresh}
           loginComponent={
             <TeacherLogin
               onSelect={() => setRefresh((n) => n + 1)}
