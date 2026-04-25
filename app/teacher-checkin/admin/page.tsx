@@ -195,7 +195,7 @@ export default function AdminPage() {
   }
 
   const handleTeacherDelete = async (t: TeacherInfo) => {
-    if (!confirm(`ยืนยันลบ ${t.nickname || t.name} ออกจากระบบครู?`)) return
+    if (!confirm(`ยืนยันลบ ${t.name || t.nickname} ออกจากระบบครู?`)) return
     const res = await fetch(`/api/teacher-checkin/teachers/${t.teacher_id}`, {
       method: 'DELETE',
     })
@@ -239,7 +239,7 @@ export default function AdminPage() {
   }
 
   const handleStudentDelete = async (s: StudentInfo) => {
-    if (!confirm(`ยืนยันลบ ${s.nickname || s.name}?`)) return
+    if (!confirm(`ยืนยันลบ ${s.name || s.nickname}?`)) return
     const res = await fetch(`/api/students/${s.id}`, { method: 'DELETE' })
     if (res.ok) await fetchData()
   }
@@ -424,7 +424,7 @@ export default function AdminPage() {
                             setFaceModal({
                               kind: 'teacher',
                               id: t.teacher_id,
-                              name: t.nickname || t.name,
+                              name: t.name || t.nickname || '',
                             })
                           }
                           className="ml-1 p-1.5 text-cyan-600 hover:bg-cyan-50 rounded-lg"
@@ -682,7 +682,7 @@ export default function AdminPage() {
                             setFaceModal({
                               kind: 'student',
                               id: s.id,
-                              name: s.nickname || s.name,
+                              name: s.name || s.nickname || '',
                             })
                           }
                           className="p-1.5 text-cyan-600 hover:bg-cyan-50 rounded-lg"

@@ -607,7 +607,7 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
           >
             <User className="w-3.5 h-3.5 text-blue-600" />
             <span className="text-xs text-blue-700 font-medium">
-              {teacher.nickname || teacher.name}
+              {teacher.name || teacher.nickname}
             </span>
             <X className="w-3 h-3 text-blue-400" />
           </button>
@@ -639,7 +639,7 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
               {teacher && (
                 <span className="inline-flex items-center gap-1 text-blue-600 text-xs">
                   <User className="w-3 h-3" />
-                  {teacher.nickname || teacher.name}
+                  {teacher.name || teacher.nickname}
                 </span>
               )}
             </div>
@@ -753,7 +753,7 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
                 {teacher && (
                   <span className="inline-flex items-center gap-1">
                     <User className="w-3.5 h-3.5" />
-                    {teacher.nickname || teacher.name}
+                    {teacher.name || teacher.nickname}
                   </span>
                 )}
               </div>

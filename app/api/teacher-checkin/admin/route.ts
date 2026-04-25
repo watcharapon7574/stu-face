@@ -40,7 +40,7 @@ export async function GET(request: Request) {
     // Enrolled teacher profiles
     const { data: enrolledProfiles } = await supabaseServer
       .from('profiles')
-      .select('id, first_name, last_name, nickname, phone, workplace')
+      .select('id, prefix, first_name, last_name, nickname, phone, workplace')
       .in('id', teacherIds.length > 0 ? teacherIds : ['none'])
 
     // Today attendance
@@ -77,7 +77,7 @@ export async function GET(request: Request) {
     // Enrollable profiles (have telegram_chat_id, not yet enrolled as teacher)
     const { data: candidates } = await supabaseServer
       .from('profiles')
-      .select('id, first_name, last_name, nickname, phone, workplace, telegram_chat_id')
+      .select('id, prefix, first_name, last_name, nickname, phone, workplace, telegram_chat_id')
       .not('telegram_chat_id', 'is', null)
       .order('first_name')
 
@@ -90,7 +90,9 @@ export async function GET(request: Request) {
       const att = (attendance || []).find((a: any) => a.teacher_id === t.teacher_id)
       return {
         teacher_id: t.teacher_id,
-        name: profile ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() : 'ไม่ทราบ',
+        name: profile
+          ? `${profile.prefix || ''}${profile.first_name || ''} ${profile.last_name || ''}`.trim()
+          : 'ไม่ทราบ',
         nickname: profile?.nickname || null,
         phone: profile?.phone || null,
         workplace: profile?.workplace || null,
@@ -109,7 +111,7 @@ export async function GET(request: Request) {
 
     const teacherNameById = new Map<string, string>()
     for (const t of teachers) {
-      teacherNameById.set(t.teacher_id, t.nickname || t.name)
+      teacherNameById.set(t.teacher_id, t.name || t.nickname)
     }
     const autoCheckoutList = (autoCheckouts || []).map((a: any) => ({
       teacher_id: a.teacher_id,
@@ -131,7 +133,7 @@ export async function GET(request: Request) {
       service_points: servicePoints || [],
       candidate_profiles: candidateProfiles.map((p: any) => ({
         id: p.id,
-        name: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
+        name: `${p.prefix || ''}${p.first_name || ''} ${p.last_name || ''}`.trim(),
         nickname: p.nickname,
         phone: p.phone,
         workplace: p.workplace,

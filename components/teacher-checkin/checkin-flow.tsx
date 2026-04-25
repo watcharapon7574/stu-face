@@ -325,7 +325,7 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
             </div>
             <div>
               <div className="text-sm font-medium text-gray-900">
-                {teacher.nickname || teacher.name}
+                {teacher.name || teacher.nickname}
               </div>
               <div className="text-xs text-gray-400">
                 ครูผู้สอน {isAdmin && <span className="text-cyan-500">(Admin)</span>}
@@ -400,7 +400,7 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
       {state === 'not_enrolled' && teacher && (
         <TeacherEnrollment
           teacherId={teacher.id}
-          teacherName={teacher.nickname || teacher.name}
+          teacherName={teacher.name || teacher.nickname || ''}
           deviceFingerprint={deviceFP}
           onComplete={handleEnrollmentComplete}
         />
@@ -496,7 +496,7 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
             <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
             <h2 className="text-2xl font-bold text-gray-900 mb-2">{result.message}</h2>
             {teacher && (
-              <p className="text-lg text-gray-700 mb-1">{teacher.nickname || teacher.name}</p>
+              <p className="text-lg text-gray-700 mb-1">{teacher.name || teacher.nickname}</p>
             )}
             <div className="flex items-center justify-center gap-4 text-sm text-gray-500 mt-3 flex-wrap">
               {nearestPoint && (
