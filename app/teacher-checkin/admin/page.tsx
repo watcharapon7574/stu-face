@@ -35,6 +35,7 @@ function formatTime(iso: string | null): string {
   return new Date(iso).toLocaleTimeString('th-TH', {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'Asia/Bangkok',
   })
 }
 
@@ -479,6 +480,7 @@ export default function AdminPage() {
                               day: 'numeric',
                               month: 'short',
                               year: '2-digit',
+                              timeZone: 'Asia/Bangkok',
                             })}
                           </div>
                         </div>
