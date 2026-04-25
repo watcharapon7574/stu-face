@@ -45,18 +45,22 @@ export function getCurrentPosition(): Promise<GeolocationPosition> {
 }
 
 /**
- * Find the nearest service point within radius
+ * Find the nearest service point within radius.
+ * graceRadius is a global minimum radius — useful when individual
+ * service points are configured tightly but GPS noise needs slack.
  */
 export function findNearestServicePoint(
   lat: number,
   lng: number,
-  servicePoints: ServicePoint[]
+  servicePoints: ServicePoint[],
+  graceRadius = 200
 ): { point: ServicePoint; distance: number } | null {
   let nearest: { point: ServicePoint; distance: number } | null = null
 
   for (const sp of servicePoints) {
     const dist = haversineDistance(lat, lng, sp.lat, sp.lng)
-    if (dist <= sp.radius_meters) {
+    const effectiveRadius = Math.max(sp.radius_meters, graceRadius)
+    if (dist <= effectiveRadius) {
       if (!nearest || dist < nearest.distance) {
         nearest = { point: sp, distance: dist }
       }
