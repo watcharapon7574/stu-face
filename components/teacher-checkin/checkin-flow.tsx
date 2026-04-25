@@ -446,12 +446,17 @@ function TypeSelect({
   isAfternoon: boolean
   onSelect: (type: 'check_in' | 'check_out') => void
 }) {
-  const [now, setNow] = useState(new Date())
+  const [now, setNow] = useState<Date | null>(null)
 
   useEffect(() => {
+    setNow(new Date())
     const timer = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(timer)
   }, [])
+
+  if (!now) {
+    return <div className="flex flex-col flex-1" aria-hidden />
+  }
 
   const hours = now.getHours()
   const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })

@@ -8,7 +8,7 @@ import { Menu, X, UserPlus, BarChart3, ScanFace, Bus } from 'lucide-react'
 const links = [
   { href: '/', label: 'รับ-ส่ง นักเรียน', icon: Bus },
   { href: '/teacher-checkin', label: 'ลงชื่อทำงาน', icon: ScanFace },
-  { href: '/setup', label: 'ลงทะเบียน', icon: UserPlus },
+  { href: '/setup', label: 'ลงทะเบียนนักเรียน', icon: UserPlus },
   { href: '/dashboard', label: 'Dashboard', icon: BarChart3 },
 ]
 

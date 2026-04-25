@@ -206,12 +206,17 @@ function AttendanceSelect({
 }: {
   onSelect: (type: 'check_in' | 'check_out') => void
 }) {
-  const [now, setNow] = useState(new Date())
+  const [now, setNow] = useState<Date | null>(null)
 
   useEffect(() => {
+    setNow(new Date())
     const timer = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(timer)
   }, [])
+
+  if (!now) {
+    return <div className="flex-1 mt-4" aria-hidden />
+  }
 
   const hours = now.getHours()
   const isAfternoon = hours >= 12
