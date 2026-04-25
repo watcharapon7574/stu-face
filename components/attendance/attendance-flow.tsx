@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import FaceRecognition from '@/components/attendance/face-recognition'
-import { CheckCircle2, LogIn, LogOut, Sun, Moon, Clock, MapPin, Loader2, AlertTriangle, User, X, RefreshCw, Camera } from 'lucide-react'
+import { CheckCircle2, LogIn, LogOut, Sun, Moon, Clock, MapPin, Loader2, User, X, RefreshCw, Camera } from 'lucide-react'
 import type { Student, AttendanceMethod } from '@/types/database'
 import { getCurrentPosition, findNearestServicePoint, findClosestServicePoint, type ServicePoint } from '@/lib/geolocation'
 import { getSavedTeacher, saveTeacher, clearTeacher, type SavedTeacher } from '@/lib/teacher-store'
@@ -454,7 +454,7 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
   const [updatingStudent, setUpdatingStudent] = useState<Student | null>(null)
   const [teacher, setTeacher] = useState<SavedTeacher | null>(null)
-  const { status, matched, closest } = useLocationDetection(servicePoints)
+  const { status, matched } = useLocationDetection(servicePoints)
 
   // Load saved teacher from localStorage on mount
   useEffect(() => {
@@ -557,14 +557,6 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
           <div className="inline-flex items-center gap-2 bg-green-50 rounded-full px-3 py-1.5 border border-green-200">
             <MapPin className="w-3.5 h-3.5 text-green-600" />
             <span className="text-xs text-green-700 font-medium">{matched.short_name}</span>
-          </div>
-        )}
-        {status === 'out_of_range' && closest && (
-          <div className="inline-flex items-center gap-2 bg-amber-50 rounded-full px-3 py-1.5 border border-amber-200">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-            <span className="text-xs text-amber-700">
-              ใกล้ {closest.point.short_name} {(closest.distance / 1000).toFixed(1)} km
-            </span>
           </div>
         )}
         {status === 'error' && (
