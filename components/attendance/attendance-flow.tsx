@@ -7,11 +7,9 @@ import FaceRecognition from '@/components/attendance/face-recognition'
 import { CheckCircle2, LogIn, LogOut, Sun, Moon, Clock, MapPin, Loader2, User, X, RefreshCw, Camera } from 'lucide-react'
 import type { Student, AttendanceMethod } from '@/types/database'
 import { getCurrentPosition, findNearestServicePoint, findClosestServicePoint, type ServicePoint } from '@/lib/geolocation'
-import { getSavedTeacher, saveTeacher, clearTeacher, type SavedTeacher } from '@/lib/teacher-store'
+import { getSavedTeacher, clearTeacher, type SavedTeacher } from '@/lib/teacher-store'
 import { detectFaces, initializeHuman } from '@/lib/face-detection'
 import type { FaceEmbedding } from '@/types/database'
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 
 // --- Location detector ---
 function useLocationDetection(servicePoints: ServicePoint[]) {
@@ -44,195 +42,6 @@ function useLocationDetection(servicePoints: ServicePoint[]) {
   }, [servicePoints])
 
   return { status, matched, closest, coords }
-}
-
-// --- OTP Login ---
-function TeacherLogin({ onSelect }: { onSelect: (teacher: SavedTeacher) => void }) {
-  const [step, setStep] = useState<'phone' | 'otp'>('phone')
-  const [phone, setPhone] = useState('')
-  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', ''])
-  const otpRefs = useRef<(HTMLInputElement | null)[]>([])
-  const otp = otpDigits.join('')
-  const [teacherName, setTeacherName] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-
-  const requestOtp = async () => {
-    if (phone.replace(/\D/g, '').length < 9) {
-      setError('กรุณากรอกเบอร์โทรให้ถูกต้อง')
-      return
-    }
-    setLoading(true)
-    setError('')
-
-    try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/stu-request-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone }),
-      })
-      const data = await res.json()
-
-      if (!res.ok) {
-        setError(data.message || 'เกิดข้อผิดพลาด')
-        setLoading(false)
-        return
-      }
-
-      setTeacherName(data.name)
-      setStep('otp')
-    } catch {
-      setError('ไม่สามารถเชื่อมต่อได้')
-    }
-    setLoading(false)
-  }
-
-  const verifyOtp = async () => {
-    if (otp.length !== 4) {
-      setError('กรุณากรอก OTP 4 หลัก')
-      return
-    }
-    setLoading(true)
-    setError('')
-
-    try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/stu-verify-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, otp }),
-      })
-      const data = await res.json()
-
-      if (!res.ok) {
-        setError(data.message || 'เกิดข้อผิดพลาด')
-        setLoading(false)
-        return
-      }
-
-      const saved: SavedTeacher = {
-        id: data.teacher.id,
-        name: data.teacher.name,
-        nickname: data.teacher.nickname,
-        avatar_url: data.teacher.avatar_url,
-      }
-      saveTeacher(saved)
-      onSelect(saved)
-    } catch {
-      setError('ไม่สามารถเชื่อมต่อได้')
-    }
-    setLoading(false)
-  }
-
-  return (
-    <div className="mt-4">
-      <Card className="border-gray-200">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-gray-900 text-lg">เข้าสู่ระบบ</CardTitle>
-          <p className="text-sm text-gray-400">
-            {step === 'phone'
-              ? 'กรอกเบอร์โทรเพื่อรับ OTP ทาง Telegram (บอท OTP FastDoc)'
-              : `ส่ง OTP ไปให้ ${teacherName} แล้ว`}
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {step === 'phone' ? (
-            <>
-              <input
-                type="tel"
-                inputMode="numeric"
-                placeholder="เบอร์โทร เช่น 0812345678"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
-                maxLength={12}
-              />
-              <Button
-                onClick={requestOtp}
-                disabled={loading}
-                className="w-full"
-                size="lg"
-              >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                ส่ง OTP
-              </Button>
-            </>
-          ) : (
-            <>
-              <div className="text-center">
-                <div className="inline-flex items-center gap-2 bg-green-50 rounded-full px-4 py-2 border border-green-200 mb-4">
-                  <CheckCircle2 className="w-4 h-4 text-green-600" />
-                  <span className="text-sm text-green-700">{teacherName}</span>
-                </div>
-              </div>
-              <div className="flex gap-2 justify-center">
-                {otpDigits.map((digit, i) => (
-                  <input
-                    key={i}
-                    ref={(el) => { otpRefs.current[i] = el }}
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    value={digit}
-                    onChange={(e) => {
-                      const v = e.target.value.replace(/\D/g, '').slice(-1)
-                      setOtpDigits((prev) => {
-                        const next = [...prev]
-                        next[i] = v
-                        return next
-                      })
-                      if (v && i < 3) otpRefs.current[i + 1]?.focus()
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Backspace' && !otpDigits[i] && i > 0) {
-                        otpRefs.current[i - 1]?.focus()
-                      }
-                    }}
-                    onPaste={(e) => {
-                      e.preventDefault()
-                      const pasted = e.clipboardData
-                        .getData('text')
-                        .replace(/\D/g, '')
-                        .slice(0, 4)
-                      if (!pasted) return
-                      const next = ['', '', '', '']
-                      for (let k = 0; k < pasted.length; k++) next[k] = pasted[k]
-                      setOtpDigits(next)
-                      const focusIdx = Math.min(pasted.length, 3)
-                      otpRefs.current[focusIdx]?.focus()
-                    }}
-                    maxLength={1}
-                    autoFocus={i === 0}
-                    className="w-14 h-16 text-center text-2xl font-mono border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
-                  />
-                ))}
-              </div>
-              <Button
-                onClick={verifyOtp}
-                disabled={loading || otp.length !== 4}
-                className="w-full"
-                size="lg"
-              >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                ยืนยัน
-              </Button>
-              <button
-                onClick={() => { setStep('phone'); setOtpDigits(['', '', '', '']); setError('') }}
-                className="w-full text-sm text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                เปลี่ยนเบอร์ / ส่ง OTP ใหม่
-              </button>
-            </>
-          )}
-
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm text-center">
-              {error}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  )
 }
 
 // --- Clock + buttons ---
@@ -507,7 +316,7 @@ interface AttendanceFlowProps {
 }
 
 export default function AttendanceFlow({ students, servicePoints }: AttendanceFlowProps) {
-  const [mode, setMode] = useState<'select' | 'pick_teacher' | 'face' | 'manual' | 'update_face' | 'success'>('select')
+  const [mode, setMode] = useState<'select' | 'face' | 'manual' | 'update_face' | 'success'>('select')
   const [attendanceType, setAttendanceType] = useState<'check_in' | 'check_out'>('check_in')
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
   const [updatingStudent, setUpdatingStudent] = useState<Student | null>(null)
@@ -522,24 +331,13 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
 
   const handleAttendanceTypeSelect = (type: 'check_in' | 'check_out') => {
     setAttendanceType(type)
-    if (teacher) {
-      // Teacher already set, go straight to face scan
-      setMode('face')
-    } else {
-      // Need to pick teacher first
-      setMode('pick_teacher')
-    }
-  }
-
-  const handleTeacherSelected = (t: SavedTeacher) => {
-    setTeacher(t)
     setMode('face')
   }
 
-  const handleChangeTeacher = () => {
+  const handleLogout = () => {
+    if (!confirm('ออกจากระบบ?')) return
     clearTeacher()
-    setTeacher(null)
-    setMode('pick_teacher')
+    window.location.href = '/'
   }
 
   const handleFaceRecognized = async (
@@ -632,7 +430,7 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
         {/* Teacher badge */}
         {teacher && (
           <button
-            onClick={handleChangeTeacher}
+            onClick={handleLogout}
             className="inline-flex items-center gap-2 bg-blue-50 rounded-full px-3 py-1.5 border border-blue-200 hover:bg-blue-100 transition-colors"
           >
             <User className="w-3.5 h-3.5 text-blue-600" />
@@ -646,11 +444,6 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
 
       {/* Select attendance type */}
       {mode === 'select' && <AttendanceSelect onSelect={handleAttendanceTypeSelect} />}
-
-      {/* Pick teacher */}
-      {mode === 'pick_teacher' && (
-        <TeacherLogin onSelect={handleTeacherSelected} />
-      )}
 
       {/* Face recognition mode */}
       {mode === 'face' && (

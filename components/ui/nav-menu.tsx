@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Menu, X, UserPlus, BarChart3, Bus } from 'lucide-react'
+import { Menu, X, UserPlus, BarChart3, Bus, LogOut } from 'lucide-react'
+import { clearTeacher } from '@/lib/teacher-store'
 
 const links = [
   { href: '/', label: 'รับ-ส่ง นักเรียน', icon: Bus },
@@ -55,6 +56,17 @@ export default function NavMenu() {
               </Link>
             )
           })}
+          <button
+            onClick={() => {
+              setOpen(false)
+              clearTeacher()
+              window.location.href = '/'
+            }}
+            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition border-t border-gray-100"
+          >
+            <LogOut className="w-4 h-4" />
+            ออกจากระบบ
+          </button>
           <div className="border-t border-gray-100 px-4 py-2">
             <span className="text-[10px] text-gray-300">v{process.env.NEXT_PUBLIC_APP_VERSION}</span>
           </div>
