@@ -10,7 +10,6 @@ import { getCurrentPosition, findNearestServicePoint, findClosestServicePoint, t
 import { getSavedTeacher, saveTeacher, clearTeacher, type SavedTeacher } from '@/lib/teacher-store'
 import { detectFaces, initializeHuman } from '@/lib/face-detection'
 import type { FaceEmbedding } from '@/types/database'
-import CheckinBanner from '@/components/teacher-checkin/checkin-banner'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
 
@@ -559,9 +558,6 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
 
   return (
     <div className="max-w-2xl mx-auto flex flex-col min-h-[calc(100vh-4rem)]">
-      {/* Teacher check-in banner */}
-      <CheckinBanner />
-
       {/* Header */}
       <div className="flex items-center justify-center gap-3">
         <img src="/std2.png" alt="Logo" className="w-10 h-10 object-contain" />
