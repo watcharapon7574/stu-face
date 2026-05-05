@@ -50,7 +50,9 @@ function useLocationDetection(servicePoints: ServicePoint[]) {
 function TeacherLogin({ onSelect }: { onSelect: (teacher: SavedTeacher) => void }) {
   const [step, setStep] = useState<'phone' | 'otp'>('phone')
   const [phone, setPhone] = useState('')
-  const [otp, setOtp] = useState('')
+  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', ''])
+  const otpRefs = useRef<(HTMLInputElement | null)[]>([])
+  const otp = otpDigits.join('')
   const [teacherName, setTeacherName] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -162,16 +164,48 @@ function TeacherLogin({ onSelect }: { onSelect: (teacher: SavedTeacher) => void 
                   <span className="text-sm text-green-700">{teacherName}</span>
                 </div>
               </div>
-              <input
-                type="text"
-                inputMode="numeric"
-                placeholder="กรอก OTP 4 หลัก"
-                value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-center text-2xl tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
-                maxLength={4}
-                autoFocus
-              />
+              <div className="flex gap-2 justify-center">
+                {otpDigits.map((digit, i) => (
+                  <input
+                    key={i}
+                    ref={(el) => { otpRefs.current[i] = el }}
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={digit}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/\D/g, '').slice(-1)
+                      setOtpDigits((prev) => {
+                        const next = [...prev]
+                        next[i] = v
+                        return next
+                      })
+                      if (v && i < 3) otpRefs.current[i + 1]?.focus()
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Backspace' && !otpDigits[i] && i > 0) {
+                        otpRefs.current[i - 1]?.focus()
+                      }
+                    }}
+                    onPaste={(e) => {
+                      e.preventDefault()
+                      const pasted = e.clipboardData
+                        .getData('text')
+                        .replace(/\D/g, '')
+                        .slice(0, 4)
+                      if (!pasted) return
+                      const next = ['', '', '', '']
+                      for (let k = 0; k < pasted.length; k++) next[k] = pasted[k]
+                      setOtpDigits(next)
+                      const focusIdx = Math.min(pasted.length, 3)
+                      otpRefs.current[focusIdx]?.focus()
+                    }}
+                    maxLength={1}
+                    autoFocus={i === 0}
+                    className="w-14 h-16 text-center text-2xl font-mono border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
+                  />
+                ))}
+              </div>
               <Button
                 onClick={verifyOtp}
                 disabled={loading || otp.length !== 4}
@@ -182,7 +216,7 @@ function TeacherLogin({ onSelect }: { onSelect: (teacher: SavedTeacher) => void 
                 ยืนยัน
               </Button>
               <button
-                onClick={() => { setStep('phone'); setOtp(''); setError('') }}
+                onClick={() => { setStep('phone'); setOtpDigits(['', '', '', '']); setError('') }}
                 className="w-full text-sm text-gray-400 hover:text-gray-600 transition-colors"
               >
                 เปลี่ยนเบอร์ / ส่ง OTP ใหม่
