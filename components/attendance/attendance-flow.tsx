@@ -189,14 +189,17 @@ function UpdateFaceFlow({
   useEffect(() => {
     let mounted = true
     async function init() {
-      await initializeHuman()
+      // Camera first — see note in face-recognition.tsx about iOS PWA
       const ms = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
       })
-      if (mounted && videoRef.current) {
-        setStream(ms)
-        videoRef.current.srcObject = ms
+      if (!mounted) {
+        ms.getTracks().forEach((t) => t.stop())
+        return
       }
+      setStream(ms)
+      if (videoRef.current) videoRef.current.srcObject = ms
+      await initializeHuman()
     }
     init().catch(() => setError('ไม่สามารถเปิดกล้องได้'))
     return () => {

@@ -63,9 +63,10 @@ export default function CameraCapture({
     let mounted = true
 
     async function init() {
+      // Camera first — see note in face-recognition.tsx about iOS PWA
+      await startCamera(facingMode)
       await initializeHuman()
       if (mounted) setHumanReady(true)
-      await startCamera(facingMode)
     }
 
     init()

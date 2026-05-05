@@ -45,12 +45,9 @@ export default function FaceRecognition({
 
     async function init() {
       try {
-        await initializeHuman()
-        if (mounted) {
-          setHumanReady(true)
-          setTriangulation(getFaceTriangulation())
-        }
-
+        // Request camera FIRST while the user-gesture context is fresh.
+        // Older iOS Safari in standalone PWA mode silently drops the
+        // camera request if too much async work runs before getUserMedia.
         const mediaStream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: 'user',
@@ -59,11 +56,19 @@ export default function FaceRecognition({
           },
         })
 
+        if (!mounted) {
+          mediaStream.getTracks().forEach((t) => t.stop())
+          return
+        }
+        setStream(mediaStream)
+        if (videoRef.current) {
+          videoRef.current.srcObject = mediaStream
+        }
+
+        await initializeHuman()
         if (mounted) {
-          setStream(mediaStream)
-          if (videoRef.current) {
-            videoRef.current.srcObject = mediaStream
-          }
+          setHumanReady(true)
+          setTriangulation(getFaceTriangulation())
         }
       } catch (err) {
         if (mounted) {
