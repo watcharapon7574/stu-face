@@ -7,9 +7,11 @@ import FaceRecognition from '@/components/attendance/face-recognition'
 import { CheckCircle2, LogIn, LogOut, Sun, Moon, Clock, MapPin, Loader2, User, X, RefreshCw, Camera } from 'lucide-react'
 import type { Student, AttendanceMethod } from '@/types/database'
 import { getCurrentPosition, findNearestServicePoint, findClosestServicePoint, type ServicePoint } from '@/lib/geolocation'
-import { getSavedTeacher, clearTeacher, type SavedTeacher } from '@/lib/teacher-store'
+import { getSavedTeacher, saveTeacher, clearTeacher, type SavedTeacher } from '@/lib/teacher-store'
 import { detectFaces, initializeHuman } from '@/lib/face-detection'
 import type { FaceEmbedding } from '@/types/database'
+import { matchWorkplaceToServicePoint } from '@/lib/workplace-match'
+import WorkplacePromptModal from '@/components/attendance/workplace-prompt-modal'
 
 // --- Location detector ---
 function useLocationDetection(servicePoints: ServicePoint[]) {
@@ -324,6 +326,7 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
   const [updatingStudent, setUpdatingStudent] = useState<Student | null>(null)
   const [teacher, setTeacher] = useState<SavedTeacher | null>(null)
+  const [needsWorkplace, setNeedsWorkplace] = useState(false)
   const { status, matched, closest, coords } = useLocationDetection(servicePoints)
 
   // Load saved teacher from localStorage on mount
@@ -331,6 +334,53 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
     const saved = getSavedTeacher()
     if (saved) setTeacher(saved)
   }, [])
+
+  // Whenever a teacher exists but we haven't resolved workplace, fetch it
+  useEffect(() => {
+    if (!teacher) return
+
+    if (teacher.workplace === undefined) {
+      fetch(`/api/profiles/${teacher.id}`)
+        .then((r) => r.json())
+        .then((data) => {
+          const wp = (data?.profile?.workplace as string | null) ?? null
+          const updated = { ...teacher, workplace: wp }
+          saveTeacher(updated)
+          setTeacher(updated)
+          if (!wp || !wp.trim()) setNeedsWorkplace(true)
+        })
+        .catch(() => {
+          // Can't reach server: fall back to no filter so UI isn't blocked
+        })
+    } else if (!teacher.workplace || !teacher.workplace.trim()) {
+      setNeedsWorkplace(true)
+    } else {
+      setNeedsWorkplace(false)
+    }
+  }, [teacher?.id, teacher?.workplace])
+
+  const handleWorkplaceSave = async (workplace: string) => {
+    if (!teacher) return
+    const res = await fetch(`/api/profiles/${teacher.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workplace }),
+    })
+    if (!res.ok) throw new Error('failed')
+    const updated = { ...teacher, workplace }
+    saveTeacher(updated)
+    setTeacher(updated)
+    setNeedsWorkplace(false)
+  }
+
+  // Filter students based on the teacher's workplace → matched service point
+  const teacherSP = matchWorkplaceToServicePoint(
+    teacher?.workplace ?? null,
+    servicePoints
+  )
+  const visibleStudents = teacherSP
+    ? students.filter((s) => s.service_point === teacherSP.short_name)
+    : students
 
   const handleAttendanceTypeSelect = (type: 'check_in' | 'check_out') => {
     setAttendanceType(type)
@@ -472,7 +522,7 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
           </div>
 
           <FaceRecognition
-            students={students}
+            students={visibleStudents}
             type={attendanceType}
             onRecognized={handleFaceRecognized}
             onManualSelect={handleManualSelect}
@@ -506,7 +556,7 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
             </CardHeader>
             <CardContent>
               <div className="space-y-1.5 max-h-96 overflow-y-auto">
-                {students.map((student) => (
+                {visibleStudents.map((student) => (
                   <div
                     key={student.id}
                     className="flex items-center gap-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
@@ -589,6 +639,14 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* First-login workplace prompt */}
+      {needsWorkplace && teacher && (
+        <WorkplacePromptModal
+          teacherName={teacher.name || teacher.nickname || ''}
+          onSave={handleWorkplaceSave}
+        />
       )}
     </div>
   )

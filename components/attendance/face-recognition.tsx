@@ -39,6 +39,10 @@ export default function FaceRecognition({
   const liveTrackingRef = useRef(false)
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user')
 
+  // Track stream in a ref so cleanup actually stops the latest stream
+  // (closure-based cleanup with deps=[] would always see the initial null).
+  const streamRef = useRef<MediaStream | null>(null)
+
   // Initialize camera and Human library
   useEffect(() => {
     let mounted = true
@@ -60,10 +64,25 @@ export default function FaceRecognition({
           mediaStream.getTracks().forEach((t) => t.stop())
           return
         }
+        streamRef.current = mediaStream
         setStream(mediaStream)
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream
+          // iOS standalone PWA sometimes ignores the autoPlay attribute
+          // after a state-driven mount — call play() explicitly so the
+          // video element actually drives the camera.
+          try {
+            await videoRef.current.play()
+          } catch {
+            // ignore autoplay rejection; user can tap to retry
+          }
         }
+
+        // Yield to the event loop so the camera can start producing frames
+        // before we hog the main thread loading the Human/TF.js models.
+        // Without this iOS may decide the video has stalled and tear down
+        // the camera stream.
+        await new Promise((r) => setTimeout(r, 0))
 
         await initializeHuman()
         if (mounted) {
@@ -82,25 +101,24 @@ export default function FaceRecognition({
 
     return () => {
       mounted = false
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop())
-      }
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
     }
   }, [])
 
   const switchCamera = async () => {
-    if (stream) {
-      stream.getTracks().forEach((t) => t.stop())
-    }
+    streamRef.current?.getTracks().forEach((t) => t.stop())
     const newFacing = facingMode === 'user' ? 'environment' : 'user'
     setFacingMode(newFacing)
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: newFacing, width: { ideal: 480 }, height: { ideal: 640 } },
       })
+      streamRef.current = mediaStream
       setStream(mediaStream)
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream
+        try { await videoRef.current.play() } catch {}
       }
     } catch (err) {
       console.error('Switch camera error:', err)
