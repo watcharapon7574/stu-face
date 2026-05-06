@@ -690,6 +690,8 @@ export default function AttendanceFlow({
       {needsWorkplace && teacher && (
         <WorkplacePromptModal
           teacherName={teacher.name || teacher.nickname || ''}
+          servicePoints={servicePoints}
+          classrooms={classrooms}
           onSave={handleWorkplaceSave}
         />
       )}
