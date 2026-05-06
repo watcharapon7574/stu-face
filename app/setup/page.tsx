@@ -95,6 +95,12 @@ export default function SetupPage() {
 // ====================================================================
 // Add tab — create new student (with optional face scan)
 // ====================================================================
+interface ClassroomOption {
+  id: string
+  name: string
+  service_point_id: string | null
+}
+
 function AddTab({
   servicePoints,
   onCancel,
@@ -107,11 +113,27 @@ function AddTab({
   const [studentName, setStudentName] = useState('')
   const [nickname, setNickname] = useState('')
   const [servicePointId, setServicePointId] = useState('')
+  const [classroomId, setClassroomId] = useState('')
+  const [classrooms, setClassrooms] = useState<ClassroomOption[]>([])
   const [error, setError] = useState<string | null>(null)
   const [skipping, setSkipping] = useState(false)
 
   const hqPoints = servicePoints.filter((sp) => sp.is_headquarters)
   const otherPoints = servicePoints.filter((sp) => !sp.is_headquarters)
+  const isHqSelected = !!hqPoints.find((sp) => sp.id === servicePointId)
+
+  // Load classrooms once (small list)
+  useEffect(() => {
+    fetch('/api/classrooms')
+      .then((r) => r.json())
+      .then((data) => setClassrooms(data.classrooms || []))
+      .catch(() => {})
+  }, [])
+
+  // Reset classroom when switching away from HQ
+  useEffect(() => {
+    if (!isHqSelected && classroomId) setClassroomId('')
+  }, [isHqSelected, classroomId])
 
   const validateForm = (): boolean => {
     if (!studentName.trim()) {
@@ -120,6 +142,10 @@ function AddTab({
     }
     if (!servicePointId) {
       setError('กรุณาเลือกห้อง/หน่วยบริการ')
+      return false
+    }
+    if (isHqSelected && !classroomId) {
+      setError('กรุณาเลือกห้องเรียน')
       return false
     }
     setError(null)
@@ -138,6 +164,7 @@ function AddTab({
           name: studentName,
           nickname: nickname || null,
           service_point: sp?.short_name || null,
+          classroom_id: isHqSelected ? classroomId || null : null,
         }),
       })
       if (!res.ok) return { ok: false, message: 'สร้างนักเรียนไม่สำเร็จ' }
@@ -339,6 +366,41 @@ function AddTab({
               )}
             </div>
           </div>
+
+          {/* Classroom picker — appears only when ศูนย์หลัก is selected */}
+          {isHqSelected && (
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                ห้องเรียน <span className="text-red-500">*</span>
+              </label>
+              {classrooms.length === 0 ? (
+                <p className="text-xs text-gray-400 px-3 py-2">กำลังโหลดรายการห้อง...</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto border border-gray-200 rounded-xl p-2">
+                  {classrooms.map((c) => (
+                    <label
+                      key={c.id}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors text-sm ${
+                        classroomId === c.id
+                          ? 'bg-cyan-50 border border-cyan-200'
+                          : 'hover:bg-gray-50 border border-transparent'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="classroom"
+                        value={c.id}
+                        checked={classroomId === c.id}
+                        onChange={(e) => setClassroomId(e.target.value)}
+                        className="accent-cyan-500"
+                      />
+                      <span className="text-gray-900 truncate">{c.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-xl text-sm">

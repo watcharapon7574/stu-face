@@ -10,7 +10,7 @@ import { getCurrentPosition, findNearestServicePoint, findClosestServicePoint, t
 import { getSavedTeacher, saveTeacher, clearTeacher, type SavedTeacher } from '@/lib/teacher-store'
 import { detectFaces, initializeHuman } from '@/lib/face-detection'
 import type { FaceEmbedding } from '@/types/database'
-import { matchWorkplaceToServicePoint } from '@/lib/workplace-match'
+import { matchWorkplaceToServicePoint, matchWorkplaceToClassroom, type ClassroomLike } from '@/lib/workplace-match'
 import WorkplacePromptModal from '@/components/attendance/workplace-prompt-modal'
 
 // --- Location detector ---
@@ -318,9 +318,14 @@ function UpdateFaceFlow({
 interface AttendanceFlowProps {
   students: Student[]
   servicePoints: ServicePoint[]
+  classrooms?: ClassroomLike[]
 }
 
-export default function AttendanceFlow({ students, servicePoints }: AttendanceFlowProps) {
+export default function AttendanceFlow({
+  students,
+  servicePoints,
+  classrooms = [],
+}: AttendanceFlowProps) {
   const [mode, setMode] = useState<'select' | 'face' | 'manual' | 'update_face' | 'success'>('select')
   const [attendanceType, setAttendanceType] = useState<'check_in' | 'check_out'>('check_in')
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
@@ -361,25 +366,30 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
     }
   }, [teacher?.id])
 
-  // Filter students based on the teacher's workplace → matched service point
+  // Filter students based on the teacher's workplace
+  // - First try to map workplace → classroom (e.g. 'ห้องเรียนจิงโจ้' → ห้องจิงโจ้)
+  // - If no classroom match, fall back to service-point match
+  const teacherClassroom = matchWorkplaceToClassroom(
+    teacher?.workplace ?? null,
+    classrooms
+  )
   const teacherSP = matchWorkplaceToServicePoint(
     teacher?.workplace ?? null,
     servicePoints
   )
 
-  // Decide whether to prompt: workplace empty OR doesn't match any service point
+  // Decide whether to prompt: workplace empty OR doesn't match anything
   useEffect(() => {
     if (!teacher) return
-    // Wait until servicePoints have loaded before judging matches
     if (servicePoints.length === 0) return
     const wp = teacher.workplace
     if (wp === undefined) return // still resolving from server
-    if (!wp || !wp.trim() || !teacherSP) {
+    if (!wp || !wp.trim() || (!teacherSP && !teacherClassroom)) {
       setNeedsWorkplace(true)
     } else {
       setNeedsWorkplace(false)
     }
-  }, [teacher, teacherSP, servicePoints.length])
+  }, [teacher, teacherSP, teacherClassroom, servicePoints.length])
 
   const handleWorkplaceSave = async (workplace: string) => {
     if (!teacher) return
@@ -390,10 +400,11 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
     })
     if (!res.ok) throw new Error('failed')
 
-    // Re-match against service points; if still no match, throw so the modal
-    // can keep itself open and show an error to the user
-    const matched = matchWorkplaceToServicePoint(workplace, servicePoints)
-    if (!matched) {
+    // Re-match against either a service point or a classroom; if still no
+    // match, throw so the modal stays open with a hint
+    const matchedSP = matchWorkplaceToServicePoint(workplace, servicePoints)
+    const matchedClass = matchWorkplaceToClassroom(workplace, classrooms)
+    if (!matchedSP && !matchedClass) {
       // Persist the typed value but flag mismatch so the modal stays open
       const updated = { ...teacher, workplace }
       saveTeacher(updated)
@@ -407,9 +418,14 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
     setNeedsWorkplace(false)
   }
 
-  const visibleStudents = teacherSP
-    ? students.filter((s) => s.service_point === teacherSP.short_name)
-    : students
+  // Visible students: classroom match takes priority, then service point
+  const visibleStudents = teacherClassroom
+    ? students.filter(
+        (s) => (s as { classroom_id?: string | null }).classroom_id === teacherClassroom.id
+      )
+    : teacherSP
+      ? students.filter((s) => s.service_point === teacherSP.short_name)
+      : students
 
   const handleAttendanceTypeSelect = (type: 'check_in' | 'check_out') => {
     setAttendanceType(type)

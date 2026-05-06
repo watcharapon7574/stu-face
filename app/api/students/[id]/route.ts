@@ -5,7 +5,9 @@ const ALLOWED_FIELDS = [
   'name',
   'nickname',
   'date_of_birth',
+  'service_point',
   'service_point_id',
+  'classroom_id',
   'is_active',
   'photo_url',
 ] as const

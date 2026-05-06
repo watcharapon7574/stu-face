@@ -39,7 +39,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { name, nickname, service_point } = body
+    const { name, nickname, service_point, classroom_id } = body
 
     if (!name) {
       return NextResponse.json(
@@ -54,6 +54,7 @@ export async function POST(request: Request) {
         name,
         nickname,
         service_point,
+        classroom_id: classroom_id || null,
         face_embeddings: [],
       })
       .select()

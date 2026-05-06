@@ -1,4 +1,4 @@
-// Map a teacher's free-text workplace to a service-point row.
+// Map a teacher's free-text workplace to a service-point row OR classroom row.
 // Used by both server (dashboard, teachers list) and client
 // (attendance flow filtering, admin pages).
 
@@ -7,6 +7,33 @@ export interface ServicePointLike {
   short_name: string
   name: string
   is_headquarters?: boolean
+}
+
+export interface ClassroomLike {
+  id: string
+  name: string
+}
+
+// Match the teacher's workplace string to a classroom by stripping the
+// 'ห้อง'/'ห้องเรียน' prefix and looking for the noun substring.
+// Examples:
+//   workplace 'ห้องเรียนจิงโจ้'  + classroom 'ห้องจิงโจ้'  → match
+//   workplace 'ห้องกระต่าย'      + classroom 'ห้องกระต่าย' → match
+//   workplace 'หน่วยบริการXX'    + classroom 'ห้องสิงโต'   → no match
+export function matchWorkplaceToClassroom<T extends ClassroomLike>(
+  workplace: string | null | undefined,
+  classrooms: T[]
+): T | null {
+  if (!workplace) return null
+  const wp = workplace.trim()
+  if (!wp) return null
+
+  for (const c of classrooms) {
+    const noun = c.name.replace(/^ห้อง(เรียน)?/, '').trim()
+    if (!noun) continue
+    if (wp.includes(noun)) return c
+  }
+  return null
 }
 
 const HQ_KEYWORDS = ['ห้อง', 'ห้องเรียน', 'Admin', 'ศูนย์การศึกษา']

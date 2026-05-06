@@ -2,7 +2,7 @@ import { supabaseServer } from '@/lib/supabase/server'
 import AttendanceFlow from '@/components/attendance/attendance-flow'
 
 export default async function Home() {
-  const [studentsResult, servicePointsResult] = await Promise.all([
+  const [studentsResult, servicePointsResult, classroomsResult] = await Promise.all([
     supabaseServer
       .from('std_students' as any)
       .select('*')
@@ -11,6 +11,11 @@ export default async function Home() {
     supabaseServer
       .from('std_service_points' as any)
       .select('id, name, short_name, district, lat, lng, radius_meters, is_headquarters')
+      .eq('is_active', true)
+      .order('name'),
+    supabaseServer
+      .from('std_classrooms' as any)
+      .select('id, name, service_point_id')
       .eq('is_active', true)
       .order('name'),
   ])
@@ -31,6 +36,7 @@ export default async function Home() {
       <AttendanceFlow
         students={studentsResult.data || []}
         servicePoints={servicePointsResult.data || []}
+        classrooms={classroomsResult.data || []}
       />
     </main>
   )
