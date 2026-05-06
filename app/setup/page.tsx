@@ -367,12 +367,18 @@ function AddTab({
             </div>
           </div>
 
-          {/* Classroom picker — appears only when ศูนย์หลัก is selected */}
+          {/* Classroom picker — only when ศูนย์หลัก is selected. Indented + accent
+              border to make the "sub-step under ศูนย์หลัก" relationship obvious. */}
           {isHqSelected && (
-            <div>
-              <label className="block text-sm font-medium mb-2">
-                ห้องเรียน <span className="text-red-500">*</span>
-              </label>
+            <div className="ml-3 pl-4 border-l-2 border-cyan-300">
+              <div className="flex items-baseline gap-2 mb-1">
+                <label className="block text-sm font-medium">
+                  ห้องเรียนในศูนย์ฯ หลัก <span className="text-red-500">*</span>
+                </label>
+              </div>
+              <p className="text-xs text-gray-500 mb-2">
+                เลือกห้องเรียนที่นักเรียนคนนี้สังกัด (เฉพาะนักเรียนในศูนย์ฯ หลักเท่านั้น)
+              </p>
               {classrooms.length === 0 ? (
                 <p className="text-xs text-gray-400 px-3 py-2">กำลังโหลดรายการห้อง...</p>
               ) : (
