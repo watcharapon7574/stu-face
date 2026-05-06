@@ -83,8 +83,13 @@ export default function WorkplacePromptModal({ teacherName, onSave }: Props) {
     setError(null)
     try {
       await onSave(trimmed)
-    } catch {
-      setError('บันทึกไม่สำเร็จ ลองอีกครั้ง')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : ''
+      if (message === 'no_match') {
+        setError('ไม่พบหน่วยบริการที่ตรงกับชื่อนี้ ลองพิมพ์ตามรูปแบบของช่องด้านล่าง')
+      } else {
+        setError('บันทึกไม่สำเร็จ ลองอีกครั้ง')
+      }
       setSaving(false)
     }
   }

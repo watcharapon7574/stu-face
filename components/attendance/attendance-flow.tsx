@@ -335,29 +335,51 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
     if (saved) setTeacher(saved)
   }, [])
 
-  // Whenever a teacher exists but we haven't resolved workplace, fetch it
+  // Always re-fetch workplace from server when a teacher is present so
+  // admin updates to profiles.workplace take effect without logout.
   useEffect(() => {
-    if (!teacher) return
+    if (!teacher?.id) return
+    let cancelled = false
 
-    if (teacher.workplace === undefined) {
-      fetch(`/api/profiles/${teacher.id}`)
-        .then((r) => r.json())
-        .then((data) => {
-          const wp = (data?.profile?.workplace as string | null) ?? null
+    fetch(`/api/profiles/${teacher.id}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return
+        const wp = (data?.profile?.workplace as string | null) ?? null
+        if (wp !== (teacher.workplace ?? null)) {
           const updated = { ...teacher, workplace: wp }
           saveTeacher(updated)
           setTeacher(updated)
-          if (!wp || !wp.trim()) setNeedsWorkplace(true)
-        })
-        .catch(() => {
-          // Can't reach server: fall back to no filter so UI isn't blocked
-        })
-    } else if (!teacher.workplace || !teacher.workplace.trim()) {
+        }
+      })
+      .catch(() => {
+        // Network down: fall back to whatever we cached locally
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [teacher?.id])
+
+  // Filter students based on the teacher's workplace → matched service point
+  const teacherSP = matchWorkplaceToServicePoint(
+    teacher?.workplace ?? null,
+    servicePoints
+  )
+
+  // Decide whether to prompt: workplace empty OR doesn't match any service point
+  useEffect(() => {
+    if (!teacher) return
+    // Wait until servicePoints have loaded before judging matches
+    if (servicePoints.length === 0) return
+    const wp = teacher.workplace
+    if (wp === undefined) return // still resolving from server
+    if (!wp || !wp.trim() || !teacherSP) {
       setNeedsWorkplace(true)
     } else {
       setNeedsWorkplace(false)
     }
-  }, [teacher?.id, teacher?.workplace])
+  }, [teacher, teacherSP, servicePoints.length])
 
   const handleWorkplaceSave = async (workplace: string) => {
     if (!teacher) return
@@ -367,17 +389,24 @@ export default function AttendanceFlow({ students, servicePoints }: AttendanceFl
       body: JSON.stringify({ workplace }),
     })
     if (!res.ok) throw new Error('failed')
+
+    // Re-match against service points; if still no match, throw so the modal
+    // can keep itself open and show an error to the user
+    const matched = matchWorkplaceToServicePoint(workplace, servicePoints)
+    if (!matched) {
+      // Persist the typed value but flag mismatch so the modal stays open
+      const updated = { ...teacher, workplace }
+      saveTeacher(updated)
+      setTeacher(updated)
+      throw new Error('no_match')
+    }
+
     const updated = { ...teacher, workplace }
     saveTeacher(updated)
     setTeacher(updated)
     setNeedsWorkplace(false)
   }
 
-  // Filter students based on the teacher's workplace → matched service point
-  const teacherSP = matchWorkplaceToServicePoint(
-    teacher?.workplace ?? null,
-    servicePoints
-  )
   const visibleStudents = teacherSP
     ? students.filter((s) => s.service_point === teacherSP.short_name)
     : students
