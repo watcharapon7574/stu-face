@@ -146,24 +146,6 @@ export async function POST(request: Request) {
     const now = new Date().toISOString()
     const isCheckIn = check_type === 'check_in'
 
-    const { data: existing } = await supabaseServer
-      .from('std_teacher_attendance' as any)
-      .select('id, check_in, check_out')
-      .eq('teacher_id', teacher_id)
-      .eq('date', date)
-      .maybeSingle()
-
-    // Guard: cannot check out without an existing check_in for today
-    if (!isCheckIn && (!existing || !existing.check_in)) {
-      return NextResponse.json({
-        matched: false,
-        attendance_saved: false,
-        confidence: maxSim,
-        is_real: true,
-        message: 'ยังไม่ได้สแกนเข้างานวันนี้ ไม่สามารถสแกนออกได้',
-      })
-    }
-
     const timeFields = isCheckIn
       ? {
           check_in: now,
@@ -178,21 +160,43 @@ export async function POST(request: Request) {
     if (service_point_id) optionalFields.service_point_id = service_point_id
     if (device_fingerprint) optionalFields.device_fingerprint = device_fingerprint
 
-    if (existing) {
+    if (isCheckIn) {
+      // Atomic upsert keyed by UNIQUE(teacher_id, date) — kills the race
+      // window when a teacher's device retries or a duplicate scan lands
+      // simultaneously. Only check_in fields are written, so an existing
+      // check_out (rare on the same day) is preserved.
+      const { error } = await supabaseServer
+        .from('std_teacher_attendance' as any)
+        .upsert(
+          { teacher_id, date, ...timeFields, ...optionalFields },
+          { onConflict: 'teacher_id,date' }
+        )
+      if (error) throw error
+    } else {
+      // Check-out path requires an existing row with check_in already set.
+      // UPDATE ... WHERE is atomic at the row level, so no race here, but
+      // we still verify that check_in exists to avoid orphan check-outs.
+      const { data: existing } = await supabaseServer
+        .from('std_teacher_attendance' as any)
+        .select('id, check_in')
+        .eq('teacher_id', teacher_id)
+        .eq('date', date)
+        .maybeSingle()
+
+      if (!existing || !existing.check_in) {
+        return NextResponse.json({
+          matched: false,
+          attendance_saved: false,
+          confidence: maxSim,
+          is_real: true,
+          message: 'ยังไม่ได้สแกนเข้างานวันนี้ ไม่สามารถสแกนออกได้',
+        })
+      }
+
       const { error } = await supabaseServer
         .from('std_teacher_attendance' as any)
         .update({ ...timeFields, ...optionalFields })
         .eq('id', existing.id)
-      if (error) throw error
-    } else {
-      const { error } = await supabaseServer
-        .from('std_teacher_attendance' as any)
-        .insert({
-          teacher_id,
-          date,
-          ...timeFields,
-          ...optionalFields,
-        })
       if (error) throw error
     }
 

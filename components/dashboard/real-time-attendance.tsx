@@ -12,7 +12,6 @@ interface RealTimeAttendanceProps {
   servicePointId?: string
   servicePointName?: string
   isHeadquarters?: boolean
-  teacherServicePointMap?: Record<string, string>
 }
 
 export default function RealTimeAttendance({
@@ -22,22 +21,29 @@ export default function RealTimeAttendance({
   servicePointId,
   servicePointName,
   isHeadquarters = true,
-  teacherServicePointMap = {},
 }: RealTimeAttendanceProps) {
   const [attendance, setAttendance] = useState<AttendanceWithRelations[]>(initialData)
 
   useEffect(() => {
     setAttendance(initialData)
+  }, [initialData])
+
+  useEffect(() => {
+    // Server-side scope to the selected SP when one is picked so a busy
+    // morning doesn't broadcast every unit's scans to every dashboard.
+    const filter = servicePointId
+      ? `service_point_id=eq.${servicePointId}`
+      : `date=eq.${date}`
 
     const channel = supabase
-      .channel('attendance-changes')
+      .channel(`attendance:${date}:${servicePointId ?? 'all'}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'std_attendance',
-          filter: `date=eq.${date}`,
+          filter,
         },
         async (payload) => {
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
@@ -47,24 +53,22 @@ export default function RealTimeAttendance({
               .eq('id', payload.new.id)
               .single()
 
-            if (newRecord) {
-              // Filter by service point if one is selected
-              if (servicePointId) {
-                const teacherName = (newRecord as any).teacher_name as string | null
-                if (!teacherName || teacherServicePointMap[teacherName] !== servicePointId) {
-                  return
-                }
+            if (!newRecord) return
+
+            // When the server filter is service_point_id, we still need to
+            // verify date client-side (postgres_changes only honors one
+            // column at a time).
+            if (servicePointId && newRecord.date !== date) return
+
+            setAttendance((prev) => {
+              const idx = prev.findIndex((r) => r.id === newRecord.id)
+              if (idx >= 0) {
+                const updated = [...prev]
+                updated[idx] = newRecord
+                return updated
               }
-              setAttendance((prev) => {
-                const idx = prev.findIndex((r) => r.id === newRecord.id)
-                if (idx >= 0) {
-                  const updated = [...prev]
-                  updated[idx] = newRecord
-                  return updated
-                }
-                return [newRecord, ...prev]
-              })
-            }
+              return [newRecord, ...prev]
+            })
           } else if (payload.eventType === 'DELETE') {
             setAttendance((prev) => prev.filter((r) => r.id !== payload.old.id))
           }
@@ -72,8 +76,8 @@ export default function RealTimeAttendance({
       )
       .subscribe()
 
-    return () => { channel.unsubscribe() }
-  }, [date, initialData, servicePointId, teacherServicePointMap])
+    return () => { supabase.removeChannel(channel) }
+  }, [date, servicePointId])
 
   const stats = {
     total: totalStudents,

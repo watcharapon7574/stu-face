@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import RealTimeAttendance from '@/components/dashboard/real-time-attendance'
 import {
   MapPin,
@@ -81,21 +81,40 @@ export default function DashboardView({
   const [teacherRows, setTeacherRows] =
     useState<TeacherAttendanceRow[]>(initialTeacherAttendance)
 
-  // Realtime subscription for teacher attendance (today only)
+  // Refs let the realtime callback read the latest lookup/SP without forcing
+  // the subscription to tear down and rebuild every render — that previously
+  // leaked subscriptions every time initialTeacherAttendance was re-passed
+  // from the server component.
+  const profileLookupRef = useRef(teacherProfileLookup)
+  const selectedSPRef = useRef(selectedSP)
+  useEffect(() => { profileLookupRef.current = teacherProfileLookup }, [teacherProfileLookup])
+  useEffect(() => { selectedSPRef.current = selectedSP }, [selectedSP])
+
+  // Reset rows when the upstream snapshot changes (e.g. date change).
   useEffect(() => {
     setTeacherRows(initialTeacherAttendance)
+  }, [initialTeacherAttendance])
 
+  // Realtime subscription for teacher attendance — only for today, scoped
+  // server-side to the selected service point when one is picked so a dozen
+  // dashboards don't all flood each other with cross-unit events.
+  useEffect(() => {
     if (selectedDate !== initialDate) return
 
+    const filter =
+      selectedSP !== 'all'
+        ? `service_point_id=eq.${selectedSP}`
+        : `date=eq.${selectedDate}`
+
     const channel = supabase
-      .channel('teacher-attendance-changes')
+      .channel(`teacher-attendance:${selectedDate}:${selectedSP}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'std_teacher_attendance',
-          filter: `date=eq.${selectedDate}`,
+          filter,
         },
         (payload) => {
           if (payload.eventType === 'DELETE') {
@@ -106,7 +125,12 @@ export default function DashboardView({
             return
           }
           const row = payload.new as Record<string, unknown>
-          const profile = teacherProfileLookup[row.teacher_id as string]
+          // postgres_changes only accepts one filter column server-side, so
+          // when we filter by service_point_id we still need to verify the
+          // date client-side (cross-day events for the same SP could leak).
+          if (selectedSP !== 'all' && row.date !== selectedDate) return
+
+          const profile = profileLookupRef.current[row.teacher_id as string]
           const updated: TeacherAttendanceRow = {
             id: row.id as string,
             teacher_id: row.teacher_id as string,
@@ -135,7 +159,7 @@ export default function DashboardView({
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [selectedDate, initialDate, initialTeacherAttendance, teacherProfileLookup])
+  }, [selectedDate, initialDate, selectedSP])
 
   useEffect(() => {
     const teacher = getSavedTeacher()
@@ -307,7 +331,6 @@ export default function DashboardView({
               ? true
               : servicePoints.find((sp) => sp.id === selectedSP)?.is_headquarters ?? true
           }
-          teacherServicePointMap={teacherServicePointMap}
         />
       ) : (
         <TeacherAttendancePanel

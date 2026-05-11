@@ -97,97 +97,44 @@ export async function POST(request: Request) {
 
     const now = new Date().toISOString()
 
-    // Check if attendance record exists for this student on this date
-    const { data: existing } = await supabaseServer
+    // Atomic upsert keyed by UNIQUE(student_id, date) — eliminates the
+    // SELECT-then-INSERT race that surfaces during the morning rush when
+    // multiple teachers (or a retry from the same device) hit this route
+    // for the same student in the same instant.
+    const upsertPayload: Record<string, unknown> = {
+      student_id,
+      date,
+      service_point_id: service_point_id || null,
+    }
+
+    if (teacher_name) upsertPayload.teacher_name = teacher_name
+
+    if (type === 'check_in') {
+      upsertPayload.check_in = now
+      upsertPayload.confidence_in = confidence
+      upsertPayload.method_in = method
+      upsertPayload.check_in_lat = lat ?? null
+      upsertPayload.check_in_lng = lng ?? null
+      upsertPayload.guardian_in = guardianTrim
+    } else {
+      upsertPayload.check_out = now
+      upsertPayload.confidence_out = confidence
+      upsertPayload.method_out = method
+      upsertPayload.check_out_lat = lat ?? null
+      upsertPayload.check_out_lng = lng ?? null
+      upsertPayload.guardian_out = guardianTrim
+    }
+
+    const { data: result, error } = await supabaseServer
       .from('std_attendance' as any)
-      .select('*')
-      .eq('student_id', student_id)
-      .eq('date', date)
+      .upsert(upsertPayload, { onConflict: 'student_id,date' })
+      .select(`
+        *,
+        student:student_id (*)
+      `)
       .single()
 
-    let result
-
-    if (existing) {
-      // Update existing record
-      if (type === 'check_in') {
-        const { data, error } = await supabaseServer
-          .from('std_attendance' as any)
-          .update({
-            check_in: now,
-            confidence_in: confidence,
-            method_in: method,
-            teacher_name: teacher_name || existing.teacher_name,
-            check_in_lat: lat ?? null,
-            check_in_lng: lng ?? null,
-            guardian_in: guardianTrim,
-          })
-          .eq('id', existing.id)
-          .select(`
-            *,
-            student:student_id (*)
-          `)
-          .single()
-
-        if (error) throw error
-        result = data
-      } else {
-        const { data, error } = await supabaseServer
-          .from('std_attendance' as any)
-          .update({
-            check_out: now,
-            confidence_out: confidence,
-            method_out: method,
-            check_out_lat: lat ?? null,
-            check_out_lng: lng ?? null,
-            guardian_out: guardianTrim,
-          })
-          .eq('id', existing.id)
-          .select(`
-            *,
-            student:student_id (*)
-          `)
-          .single()
-
-        if (error) throw error
-        result = data
-      }
-    } else {
-      // Create new record
-      const insertData: any = {
-        student_id,
-        teacher_name,
-        date,
-        service_point_id: service_point_id || null,
-      }
-
-      if (type === 'check_in') {
-        insertData.check_in = now
-        insertData.confidence_in = confidence
-        insertData.method_in = method
-        insertData.check_in_lat = lat ?? null
-        insertData.check_in_lng = lng ?? null
-        insertData.guardian_in = guardianTrim
-      } else {
-        insertData.check_out = now
-        insertData.confidence_out = confidence
-        insertData.method_out = method
-        insertData.check_out_lat = lat ?? null
-        insertData.check_out_lng = lng ?? null
-        insertData.guardian_out = guardianTrim
-      }
-
-      const { data, error } = await supabaseServer
-        .from('std_attendance' as any)
-        .insert(insertData)
-        .select(`
-          *,
-          student:student_id (*)
-        `)
-        .single()
-
-      if (error) throw error
-      result = data
-    }
+    if (error) throw error
 
     return NextResponse.json({
       success: true,
