@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase/server'
+import { requireBearer } from '@/lib/api-auth'
 
 // Keywords that indicate the teacher works at headquarters (ศูนย์หลัก)
 const HQ_KEYWORDS = ['ห้อง', 'ห้องเรียน', 'Admin', 'ศูนย์การศึกษา']
@@ -42,6 +43,9 @@ function matchWorkplaceToServicePoint(
 }
 
 export async function GET(request: Request) {
+  const auth = requireBearer(request)
+  if (!auth.ok) return auth.response
+
   try {
     const { searchParams } = new URL(request.url)
     const servicePointId = searchParams.get('service_point_id')

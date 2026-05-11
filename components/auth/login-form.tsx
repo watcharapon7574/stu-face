@@ -44,6 +44,23 @@ export default function LoginForm({ onLoggedIn }: LoginFormProps) {
         return
       }
 
+      // Kiosk phone bypasses OTP — the edge function returns the teacher
+      // payload directly so the user goes straight in.
+      if (data.bypass && data.teacher) {
+        const t = data.teacher
+        const saved: SavedTeacher = {
+          id: t.id,
+          name: t.name,
+          nickname: t.nickname,
+          avatar_url: t.avatar_url ?? null,
+          workplace: t.workplace ?? null,
+          is_kiosk: !!t.is_kiosk,
+        }
+        saveTeacher(saved)
+        onLoggedIn(saved)
+        return
+      }
+
       setTeacherName(data.name)
       setStep('otp')
     } catch {

@@ -13,6 +13,7 @@ import type { FaceEmbedding } from '@/types/database'
 import { matchWorkplaceToServicePoint, matchWorkplaceToClassroom, type ClassroomLike } from '@/lib/workplace-match'
 import WorkplacePromptModal from '@/components/attendance/workplace-prompt-modal'
 import GuardianPickerModal from '@/components/attendance/guardian-picker-modal'
+import TeacherPickerModal from '@/components/attendance/teacher-picker-modal'
 import { apiFetch } from '@/lib/api'
 
 // --- Location detector ---
@@ -339,6 +340,10 @@ export default function AttendanceFlow({
     confidence: number
     method: AttendanceMethod
   } | null>(null)
+  // For kiosk mode only: the teacher picked per-scan (overrides the
+  // logged-in kiosk identity when saving attendance). null when no
+  // teacher has been picked yet for the current pending scan.
+  const [pickedTeacherName, setPickedTeacherName] = useState<string | null>(null)
   const { status, matched, closest, coords } = useLocationDetection(servicePoints)
 
   // Load saved teacher from localStorage on mount
@@ -461,6 +466,12 @@ export default function AttendanceFlow({
     if (!pendingAttendance) return
     const { student, confidence, method } = pendingAttendance
 
+    // Kiosk mode attributes the action to the per-scan picked teacher,
+    // not the shared kiosk login identity.
+    const effectiveTeacherName = teacher?.is_kiosk
+      ? pickedTeacherName
+      : teacher?.name || null
+
     const response = await apiFetch('/api/attendance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -471,7 +482,7 @@ export default function AttendanceFlow({
         confidence,
         method,
         service_point_id: matched?.id || null,
-        teacher_name: teacher?.name || null,
+        teacher_name: effectiveTeacherName,
         lat: coords?.lat ?? null,
         lng: coords?.lng ?? null,
         guardian,
@@ -481,6 +492,7 @@ export default function AttendanceFlow({
     if (!response.ok) throw new Error('Failed to record attendance')
 
     setPendingAttendance(null)
+    setPickedTeacherName(null)
     setSelectedStudent(student)
     setMode('success')
 
@@ -708,8 +720,26 @@ export default function AttendanceFlow({
         />
       )}
 
-      {/* Guardian picker — opens after face/manual selection, before saving */}
-      {pendingAttendance && (
+      {/* Kiosk teacher picker — only when logged in on the shared kiosk
+          device. Shows before the guardian picker so the per-scan
+          actor is recorded against the attendance row. */}
+      {pendingAttendance && teacher?.is_kiosk && !pickedTeacherName && (
+        <TeacherPickerModal
+          hqServicePointId={
+            servicePoints.find((sp) => sp.is_headquarters)?.id || null
+          }
+          onConfirm={(name) => setPickedTeacherName(name)}
+          onCancel={() => {
+            setPendingAttendance(null)
+            setPickedTeacherName(null)
+          }}
+        />
+      )}
+
+      {/* Guardian picker — opens after teacher picker (kiosk) or
+          directly after face/manual selection (non-kiosk). */}
+      {pendingAttendance &&
+        (!teacher?.is_kiosk || pickedTeacherName) && (
         <GuardianPickerModal
           studentId={pendingAttendance.student.id}
           studentName={
@@ -719,7 +749,10 @@ export default function AttendanceFlow({
           }
           type={attendanceType}
           onConfirm={submitAttendance}
-          onCancel={() => setPendingAttendance(null)}
+          onCancel={() => {
+            setPendingAttendance(null)
+            setPickedTeacherName(null)
+          }}
         />
       )}
     </div>

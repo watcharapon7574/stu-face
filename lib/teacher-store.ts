@@ -7,6 +7,7 @@ export interface SavedTeacher {
   avatar_url?: string | null
   face_enrolled?: boolean
   workplace?: string | null
+  is_kiosk?: boolean
 }
 
 export function getSavedTeacher(): SavedTeacher | null {
