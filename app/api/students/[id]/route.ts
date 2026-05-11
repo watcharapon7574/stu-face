@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase/server'
+import { revalidateStudentReaders } from '@/lib/revalidate'
 
 const ALLOWED_FIELDS = [
   'name',
@@ -39,6 +40,8 @@ export async function PATCH(
 
     if (error) throw error
 
+    revalidateStudentReaders()
+
     return NextResponse.json({ success: true, student: data })
   } catch (error) {
     console.error('Student PATCH error:', error)
@@ -59,6 +62,9 @@ export async function DELETE(
       .eq('id', id)
 
     if (error) throw error
+
+    revalidateStudentReaders()
+
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Student DELETE error:', error)

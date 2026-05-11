@@ -200,6 +200,7 @@ function AddTab({
       return
     }
     alert(`บันทึก ${studentName} สำเร็จ! (ยังไม่ได้สแกนใบหน้า — มาอัปเดตภายหลังในแท็บ "อัปเดตใบหน้า")`)
+    router.refresh()
     router.push('/')
   }
 
@@ -213,6 +214,7 @@ function AddTab({
       return
     }
     alert(`ลงทะเบียน ${studentName} สำเร็จ!`)
+    router.refresh()
     router.push('/')
   }
 

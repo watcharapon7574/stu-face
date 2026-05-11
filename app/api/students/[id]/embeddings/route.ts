@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase/server'
+import { revalidateStudentReaders } from '@/lib/revalidate'
 import type { FaceEmbedding } from '@/types/database'
 
 // POST /api/students/[id]/embeddings - เพิ่ม embedding ให้นักเรียน (rolling update)
@@ -35,6 +36,8 @@ export async function POST(
       .single()
 
     if (fetchError) throw fetchError
+
+    revalidateStudentReaders()
 
     return NextResponse.json({
       success: true,
@@ -82,6 +85,8 @@ export async function PUT(
       .single()
 
     if (error) throw error
+
+    revalidateStudentReaders()
 
     return NextResponse.json({
       success: true,

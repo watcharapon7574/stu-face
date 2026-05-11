@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase/server'
+import { revalidateStudentReaders } from '@/lib/revalidate'
 
 // GET /api/students - ดึงรายชื่อนักเรียนทั้งหมด
 export async function GET(request: Request) {
@@ -61,6 +62,8 @@ export async function POST(request: Request) {
       .single()
 
     if (error) throw error
+
+    revalidateStudentReaders()
 
     return NextResponse.json({ student: data }, { status: 201 })
   } catch (error) {
