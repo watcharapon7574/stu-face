@@ -367,6 +367,9 @@ export default function AttendanceFlow({
   // logged-in kiosk identity when saving attendance). null when no
   // teacher has been picked yet for the current pending scan.
   const [pickedTeacherName, setPickedTeacherName] = useState<string | null>(null)
+  // Surface a "ทำไปแล้ว" success variant when the server reports the
+  // student was already scanned for this type today.
+  const [alreadyDoneAt, setAlreadyDoneAt] = useState<string | null>(null)
   const { status, matched, closest, coords } = useLocationDetection(servicePoints)
 
   // Load saved teacher from localStorage on mount
@@ -516,15 +519,27 @@ export default function AttendanceFlow({
 
     if (!response.ok) throw new Error('Failed to record attendance')
 
+    const data = await response.json().catch(() => null)
+    const existing = data?.attendance as
+      | { check_in?: string | null; check_out?: string | null }
+      | null
+    const alreadyTime = data?.already_done
+      ? attendanceType === 'check_in'
+        ? existing?.check_in ?? null
+        : existing?.check_out ?? null
+      : null
+
     setPendingAttendance(null)
     setPickedTeacherName(null)
     setSelectedStudent(student)
+    setAlreadyDoneAt(alreadyTime)
     setMode('success')
 
     setTimeout(() => {
       setMode('select')
       setSelectedStudent(null)
-    }, 2000)
+      setAlreadyDoneAt(null)
+    }, alreadyTime ? 3500 : 2000)
   }
 
   const handleManualSelect = () => {
@@ -705,31 +720,58 @@ export default function AttendanceFlow({
         />
       )}
 
-      {/* Success message */}
+      {/* Success message — two variants:
+          - Normal: just recorded (green check)
+          - Already done: this student was already scanned for this type
+            today (amber clock, shows the original time so the teacher can
+            see who/when did it) */}
       {mode === 'success' && selectedStudent && (
         <div className="mt-4 flex-1 flex items-center">
-          <Card className="w-full border-gray-200">
+          <Card className={`w-full ${alreadyDoneAt ? 'border-amber-300 bg-amber-50/40' : 'border-gray-200'}`}>
             <CardContent className="py-12 text-center">
-              <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">บันทึกสำเร็จ!</h2>
+              {alreadyDoneAt ? (
+                <Clock className="w-16 h-16 text-amber-500 mx-auto mb-4" />
+              ) : (
+                <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
+              )}
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                {alreadyDoneAt
+                  ? `สแกน${attendanceType === 'check_in' ? 'เข้า' : 'ออก'}แล้ว`
+                  : 'บันทึกสำเร็จ!'}
+              </h2>
               <p className="text-lg text-gray-700 mb-2">{selectedStudent.name}</p>
-              <div className="flex items-center justify-center gap-3 text-sm text-gray-500">
-                {matched && (
-                  <span className="inline-flex items-center gap-1">
-                    <MapPin className="w-3.5 h-3.5" />
-                    {matched.short_name}
+              {alreadyDoneAt ? (
+                <p className="text-sm text-amber-700 mb-2">
+                  สแกน{attendanceType === 'check_in' ? 'เข้า' : 'ออก'}ไปแล้วเมื่อ{' '}
+                  <span className="font-semibold tabular-nums">
+                    {new Date(alreadyDoneAt).toLocaleTimeString('th-TH', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      timeZone: 'Asia/Bangkok',
+                    })}
                   </span>
-                )}
-                {teacher && (
-                  <span className="inline-flex items-center gap-1">
-                    <User className="w-3.5 h-3.5" />
-                    {teacher.name || teacher.nickname}
-                  </span>
-                )}
-              </div>
-              <p className="text-gray-400 mt-2">
-                {attendanceType === 'check_in' ? 'เช็คชื่อเข้า' : 'เช็คชื่อออก'} เรียบร้อยแล้ว
-              </p>
+                </p>
+              ) : (
+                <div className="flex items-center justify-center gap-3 text-sm text-gray-500">
+                  {matched && (
+                    <span className="inline-flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5" />
+                      {matched.short_name}
+                    </span>
+                  )}
+                  {teacher && (
+                    <span className="inline-flex items-center gap-1">
+                      <User className="w-3.5 h-3.5" />
+                      {teacher.name || teacher.nickname}
+                    </span>
+                  )}
+                </div>
+              )}
+              {!alreadyDoneAt && (
+                <p className="text-gray-400 mt-2">
+                  {attendanceType === 'check_in' ? 'เช็คชื่อเข้า' : 'เช็คชื่อออก'} เรียบร้อยแล้ว
+                </p>
+              )}
             </CardContent>
           </Card>
         </div>

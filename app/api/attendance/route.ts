@@ -97,6 +97,38 @@ export async function POST(request: Request) {
 
     const now = new Date().toISOString()
 
+    // Short-circuit duplicate scans: if this student already has the
+    // requested timestamp recorded for today, don't overwrite — surface
+    // the existing record so the UI can say "scanned already at HH:MM".
+    // The race window between this SELECT and the upsert below is tiny
+    // and harmless (two simultaneous first-time scans both succeed via
+    // the atomic upsert).
+    const { data: existing } = await supabaseServer
+      .from('std_attendance' as any)
+      .select('id, check_in, check_out, guardian_in, guardian_out, student:student_id (id, name, nickname)')
+      .eq('student_id', student_id)
+      .eq('date', date)
+      .maybeSingle()
+
+    if (existing) {
+      if (type === 'check_in' && existing.check_in) {
+        return NextResponse.json({
+          success: true,
+          already_done: true,
+          type: 'check_in',
+          attendance: existing,
+        })
+      }
+      if (type === 'check_out' && existing.check_out) {
+        return NextResponse.json({
+          success: true,
+          already_done: true,
+          type: 'check_out',
+          attendance: existing,
+        })
+      }
+    }
+
     // Atomic upsert keyed by UNIQUE(student_id, date) — eliminates the
     // SELECT-then-INSERT race that surfaces during the morning rush when
     // multiple teachers (or a retry from the same device) hit this route
