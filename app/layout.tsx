@@ -1,7 +1,8 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import NavMenu from '@/components/ui/nav-menu'
 import SwRegister from '@/components/pwa/sw-register'
+import ZoomLock from '@/components/pwa/zoom-lock'
 import AuthGate from '@/components/auth/auth-gate'
 
 export const metadata: Metadata = {
@@ -13,6 +14,18 @@ export const metadata: Metadata = {
     statusBarStyle: 'default',
     title: 'เช็คชื่อศูนย์การศึกษาพิเศษ',
   },
+}
+
+// Lock zoom — kiosk-style PWA. Without this teachers easily double-tap
+// or pinch by accident while scanning and the camera frame gets out of
+// alignment.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  minimumScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({
@@ -31,6 +44,7 @@ export default function RootLayout({
           {children}
         </AuthGate>
         <SwRegister />
+        <ZoomLock />
       </body>
     </html>
   )

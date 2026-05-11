@@ -63,8 +63,14 @@
   * {
     @apply border-border;
   }
+  html,
   body {
     @apply bg-background text-foreground;
     font-family: Arial, Helvetica, sans-serif;
+    /* Block double-tap zoom and pinch-zoom (iOS Safari ignores
+       user-scalable=no; touch-action is the reliable hammer). */
+    touch-action: pan-x pan-y;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 }
