@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { getSavedTeacher } from '@/lib/teacher-store'
 import LoginForm from './login-form'
+import WorkplaceGate from './workplace-gate'
 
 type Status = 'loading' | 'unauth' | 'auth'
 
@@ -51,5 +52,5 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     )
   }
 
-  return <>{children}</>
+  return <WorkplaceGate>{children}</WorkplaceGate>
 }
