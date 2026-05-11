@@ -105,6 +105,16 @@ export default async function DashboardPage() {
   const servicePoints = (servicePointsResult.data || []) as ServicePointRow[]
   const profiles = (profilesResult.data || []) as ProfileRow[]
 
+  // Per-service-point active student counts. Used by the dashboard to render
+  // a meaningful denominator ("0/11" for an unchecked unit) instead of "0/0".
+  // students.service_point stores the SP short_name as text.
+  const studentCountBySP: Record<string, number> = {}
+  for (const s of (studentsResult.data || []) as Array<{ service_point: string | null }>) {
+    if (!s.service_point) continue
+    const sp = servicePoints.find((p) => p.short_name === s.service_point)
+    if (sp) studentCountBySP[sp.id] = (studentCountBySP[sp.id] || 0) + 1
+  }
+
   // Build teacher_id → display info map
   const profileById = new Map<string, ProfileRow>()
   for (const p of profiles) profileById.set(p.id, p)
@@ -171,6 +181,7 @@ export default async function DashboardPage() {
         initialTeacherAttendance={teacherAttendance}
         initialDate={today}
         totalStudents={studentsResult.data?.length || 0}
+        studentCountBySP={studentCountBySP}
         totalTeachers={profiles.length}
         servicePoints={servicePoints}
         teacherServicePointMap={teacherServicePointMap}

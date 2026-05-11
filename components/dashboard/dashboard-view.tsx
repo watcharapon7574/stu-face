@@ -42,6 +42,7 @@ interface DashboardViewProps {
   initialTeacherAttendance: TeacherAttendanceRow[]
   initialDate: string
   totalStudents: number
+  studentCountBySP: Record<string, number>
   totalTeachers: number
   servicePoints: ServicePoint[]
   teacherServicePointMap: Record<string, string>
@@ -65,6 +66,7 @@ export default function DashboardView({
   initialTeacherAttendance,
   initialDate,
   totalStudents,
+  studentCountBySP,
   totalTeachers,
   servicePoints,
   teacherServicePointMap,
@@ -183,8 +185,11 @@ export default function DashboardView({
     if (spId) spCounts[spId] = (spCounts[spId] || 0) + 1
   }
 
+  // Denominator for the selected SP must be the active-student count for that
+  // SP (so an unchecked unit shows e.g. 0/11), not the count of attendance
+  // rows — that would always read 0/0 before the first scan of the day.
   const filteredTotalStudents =
-    selectedSP === 'all' ? totalStudents : filteredAttendance.length
+    selectedSP === 'all' ? totalStudents : (studentCountBySP[selectedSP] || 0)
 
   const currentSPName =
     selectedSP === 'all'
