@@ -3,7 +3,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Camera, SwitchCamera } from 'lucide-react'
+import { Camera, SwitchCamera, Loader2 } from 'lucide-react'
 import { detectFaces, initializeHuman, findBestMatches, getFaceTriangulation } from '@/lib/face-detection'
 import { CONFIDENCE_THRESHOLD } from '@/types/database'
 import type { Student, AttendanceMethod } from '@/types/database'
@@ -35,8 +35,9 @@ export default function FaceRecognition({
   const [meshPoints, setMeshPoints] = useState<[number, number, number][]>([])
   const [videoDimensions, setVideoDimensions] = useState({ w: 480, h: 640 })
   const [triangulation, setTriangulation] = useState<number[]>([])
-  const [isLiveTracking, setIsLiveTracking] = useState(true)
-  const liveTrackingRef = useRef(false)
+  // Live face mesh tracking is always on — the toggle button was removed and
+  // the live preview is part of the default scanning experience.
+  const liveTrackingRef = useRef(true)
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user')
 
   // Track stream in a ref so cleanup actually stops the latest stream
@@ -157,16 +158,13 @@ export default function FaceRecognition({
     }
   }, [humanReady])
 
-  // Start/stop live tracking
+  // Kick off the live tracking loop once Human is ready.
   useEffect(() => {
-    liveTrackingRef.current = isLiveTracking
-    if (isLiveTracking && humanReady) {
+    if (humanReady) {
+      liveTrackingRef.current = true
       trackFace()
     }
-    if (!isLiveTracking) {
-      setMeshPoints([])
-    }
-  }, [isLiveTracking, humanReady, trackFace])
+  }, [humanReady, trackFace])
 
   const scanFace = async () => {
     if (!videoRef.current || !canvasRef.current || !humanReady) return
@@ -294,17 +292,25 @@ export default function FaceRecognition({
               <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-cyan-400/60" />
             </div>
 
-            {/* Status indicator */}
+            {/* Full overlay while the recognition pipeline is running so it's
+                obvious work is happening before the success/failure toast. */}
             {isScanning && (
-              <div className="absolute top-4 right-12 bg-cyan-500/90 text-white px-3 py-1 rounded-full text-sm font-mono animate-pulse">
-                SCANNING...
-              </div>
-            )}
-
-            {isLiveTracking && !isScanning && (
-              <div className="absolute top-4 right-12 flex items-center gap-2 bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm font-mono border border-green-500/40">
-                <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                LIVE
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/70 backdrop-blur-sm">
+                <div className="relative">
+                  <Loader2 className="w-16 h-16 text-cyan-400 animate-spin" />
+                  <Camera className="w-7 h-7 text-cyan-300 absolute inset-0 m-auto" />
+                </div>
+                <div className="text-center space-y-1">
+                  <p className="text-cyan-300 font-mono text-base font-semibold tracking-wide animate-pulse">
+                    กำลังประมวลผล...
+                  </p>
+                  <p className="text-cyan-500/80 font-mono text-xs">
+                    กรุณามองกล้องนิ่ง ๆ สักครู่
+                  </p>
+                </div>
+                <div className="w-40 h-1 bg-cyan-900/50 rounded-full overflow-hidden">
+                  <div className="h-full w-1/2 bg-cyan-400 animate-pulse" />
+                </div>
               </div>
             )}
           </div>
@@ -316,31 +322,26 @@ export default function FaceRecognition({
             </div>
           )}
 
-          {/* Controls */}
-          <div className="flex gap-2">
-            <Button
-              onClick={scanFace}
-              disabled={isScanning || !humanReady}
-              className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white"
-              size="lg"
-            >
-              <Camera className="w-5 h-5 mr-2" />
-              {isScanning ? 'กำลังจดจำ...' : `สแกน${type === 'check_in' ? 'เข้า' : 'ออก'}`}
-            </Button>
-
-            <Button
-              onClick={() => setIsLiveTracking(!isLiveTracking)}
-              variant={isLiveTracking ? 'default' : 'outline'}
-              className={isLiveTracking
-                ? 'bg-green-600 hover:bg-green-700 text-white'
-                : 'border-cyan-700 text-cyan-400 hover:bg-cyan-950'
-              }
-              size="lg"
-              disabled={!humanReady}
-            >
-              {isLiveTracking ? 'LIVE ON' : 'LIVE'}
-            </Button>
-          </div>
+          {/* Primary scan action — full width, tall, and visually dominant
+              so it reads as the obvious next step. */}
+          <Button
+            onClick={scanFace}
+            disabled={isScanning || !humanReady}
+            className="w-full h-14 text-base font-semibold bg-cyan-600 hover:bg-cyan-700 text-white shadow-lg shadow-cyan-900/40 ring-1 ring-cyan-400/30 disabled:opacity-60"
+            size="lg"
+          >
+            {isScanning ? (
+              <>
+                <Loader2 className="w-6 h-6 mr-2 animate-spin" />
+                กำลังจดจำ...
+              </>
+            ) : (
+              <>
+                <Camera className="w-6 h-6 mr-2" />
+                สแกน{type === 'check_in' ? 'เข้า' : 'ออก'}
+              </>
+            )}
+          </Button>
 
           {!humanReady && (
             <p className="text-sm text-center text-cyan-500/70 mt-2 font-mono">
