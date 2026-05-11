@@ -325,10 +325,33 @@ interface AttendanceFlowProps {
 }
 
 export default function AttendanceFlow({
-  students,
+  students: initialStudents,
   servicePoints,
   classrooms = [],
 }: AttendanceFlowProps) {
+  // Treat the prop as a server-rendered seed. After mount — and again every
+  // time the user is about to scan — pull the latest students from the API
+  // so freshly added or re-scanned faces (e.g. an embedding saved seconds
+  // ago via /setup) participate in the match. Without this, the in-page
+  // students array stays frozen and the recognizer compares against an old
+  // set, which can confidently mis-match a brand-new face to an existing one.
+  const [students, setStudents] = useState<Student[]>(initialStudents)
+
+  const refreshStudents = async () => {
+    try {
+      const res = await fetch('/api/students?is_active=true', { cache: 'no-store' })
+      if (!res.ok) return
+      const data = await res.json()
+      if (Array.isArray(data.students)) setStudents(data.students as Student[])
+    } catch {
+      // Network down — keep whatever we have.
+    }
+  }
+
+  useEffect(() => {
+    refreshStudents()
+  }, [])
+
   const [mode, setMode] = useState<'select' | 'face' | 'manual' | 'update_face' | 'success'>('select')
   const [attendanceType, setAttendanceType] = useState<'check_in' | 'check_out'>('check_in')
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
@@ -442,6 +465,8 @@ export default function AttendanceFlow({
   const handleAttendanceTypeSelect = (type: 'check_in' | 'check_out') => {
     setAttendanceType(type)
     setMode('face')
+    // Ensure the recognizer compares against the most recent embeddings.
+    refreshStudents()
   }
 
   const handleLogout = () => {
