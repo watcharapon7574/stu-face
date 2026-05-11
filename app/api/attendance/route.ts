@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase/server'
+import { requireBearer } from '@/lib/api-auth'
 import type { AttendanceMethod } from '@/types/database'
 
 // GET /api/attendance - ดึงข้อมูลการเข้าเรียน
@@ -56,6 +57,9 @@ export async function GET(request: Request) {
 
 // POST /api/attendance - บันทึกการเข้าเรียน
 export async function POST(request: Request) {
+  const auth = requireBearer(request)
+  if (!auth.ok) return auth.response
+
   try {
     const body = await request.json()
     const {
@@ -68,6 +72,7 @@ export async function POST(request: Request) {
       service_point_id,
       lat,
       lng,
+      guardian,
     } = body as {
       student_id: string
       teacher_name?: string
@@ -78,7 +83,10 @@ export async function POST(request: Request) {
       service_point_id?: string
       lat?: number | null
       lng?: number | null
+      guardian?: string | null
     }
+
+    const guardianTrim = (guardian ?? '').trim() || null
 
     if (!student_id || !date || !type) {
       return NextResponse.json(
@@ -111,6 +119,7 @@ export async function POST(request: Request) {
             teacher_name: teacher_name || existing.teacher_name,
             check_in_lat: lat ?? null,
             check_in_lng: lng ?? null,
+            guardian_in: guardianTrim,
           })
           .eq('id', existing.id)
           .select(`
@@ -130,6 +139,7 @@ export async function POST(request: Request) {
             method_out: method,
             check_out_lat: lat ?? null,
             check_out_lng: lng ?? null,
+            guardian_out: guardianTrim,
           })
           .eq('id', existing.id)
           .select(`
@@ -156,12 +166,14 @@ export async function POST(request: Request) {
         insertData.method_in = method
         insertData.check_in_lat = lat ?? null
         insertData.check_in_lng = lng ?? null
+        insertData.guardian_in = guardianTrim
       } else {
         insertData.check_out = now
         insertData.confidence_out = confidence
         insertData.method_out = method
         insertData.check_out_lat = lat ?? null
         insertData.check_out_lng = lng ?? null
+        insertData.guardian_out = guardianTrim
       }
 
       const { data, error } = await supabaseServer

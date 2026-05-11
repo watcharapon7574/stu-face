@@ -12,6 +12,8 @@ import { detectFaces, initializeHuman } from '@/lib/face-detection'
 import type { FaceEmbedding } from '@/types/database'
 import { matchWorkplaceToServicePoint, matchWorkplaceToClassroom, type ClassroomLike } from '@/lib/workplace-match'
 import WorkplacePromptModal from '@/components/attendance/workplace-prompt-modal'
+import GuardianPickerModal from '@/components/attendance/guardian-picker-modal'
+import { apiFetch } from '@/lib/api'
 
 // --- Location detector ---
 function useLocationDetection(servicePoints: ServicePoint[]) {
@@ -332,6 +334,11 @@ export default function AttendanceFlow({
   const [updatingStudent, setUpdatingStudent] = useState<Student | null>(null)
   const [teacher, setTeacher] = useState<SavedTeacher | null>(null)
   const [needsWorkplace, setNeedsWorkplace] = useState(false)
+  const [pendingAttendance, setPendingAttendance] = useState<{
+    student: Student
+    confidence: number
+    method: AttendanceMethod
+  } | null>(null)
   const { status, matched, closest, coords } = useLocationDetection(servicePoints)
 
   // Load saved teacher from localStorage on mount
@@ -438,52 +445,57 @@ export default function AttendanceFlow({
     window.location.href = '/'
   }
 
-  const handleFaceRecognized = async (
+  // After face/manual selection, hold the attendance details and open the
+  // guardian picker; the actual POST happens once the user confirms a guardian.
+  const handleFaceRecognized = (
     studentId: string,
     confidence: number,
     method: AttendanceMethod
   ) => {
-    try {
-      const student = students.find((s) => s.id === studentId)
-      if (!student) return
+    const student = students.find((s) => s.id === studentId)
+    if (!student) return
+    setPendingAttendance({ student, confidence, method })
+  }
 
-      const response = await fetch('/api/attendance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          student_id: studentId,
-          date: new Date().toISOString().split('T')[0],
-          type: attendanceType,
-          confidence,
-          method,
-          service_point_id: matched?.id || null,
-          teacher_name: teacher?.name || null,
-          lat: coords?.lat ?? null,
-          lng: coords?.lng ?? null,
-        }),
-      })
+  const submitAttendance = async (guardian: string) => {
+    if (!pendingAttendance) return
+    const { student, confidence, method } = pendingAttendance
 
-      if (!response.ok) throw new Error('Failed to record attendance')
+    const response = await apiFetch('/api/attendance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        student_id: student.id,
+        date: new Date().toISOString().split('T')[0],
+        type: attendanceType,
+        confidence,
+        method,
+        service_point_id: matched?.id || null,
+        teacher_name: teacher?.name || null,
+        lat: coords?.lat ?? null,
+        lng: coords?.lng ?? null,
+        guardian,
+      }),
+    })
 
-      setSelectedStudent(student)
-      setMode('success')
+    if (!response.ok) throw new Error('Failed to record attendance')
 
-      setTimeout(() => {
-        setMode('select')
-        setSelectedStudent(null)
-      }, 2000)
-    } catch (error) {
-      console.error('Error recording attendance:', error)
-      alert('เกิดข้อผิดพลาดในการบันทึก กรุณาลองอีกครั้ง')
-    }
+    setPendingAttendance(null)
+    setSelectedStudent(student)
+    setMode('success')
+
+    setTimeout(() => {
+      setMode('select')
+      setSelectedStudent(null)
+    }, 2000)
   }
 
   const handleManualSelect = () => {
     setMode('manual')
   }
 
-  const handleManualSelectStudent = async (student: Student) => {
-    await handleFaceRecognized(student.id, 0, 'manual')
+  const handleManualSelectStudent = (student: Student) => {
+    handleFaceRecognized(student.id, 0, 'manual')
   }
 
   return (
@@ -693,6 +705,21 @@ export default function AttendanceFlow({
           servicePoints={servicePoints}
           classrooms={classrooms}
           onSave={handleWorkplaceSave}
+        />
+      )}
+
+      {/* Guardian picker — opens after face/manual selection, before saving */}
+      {pendingAttendance && (
+        <GuardianPickerModal
+          studentId={pendingAttendance.student.id}
+          studentName={
+            pendingAttendance.student.nickname
+              ? `${pendingAttendance.student.name} (${pendingAttendance.student.nickname})`
+              : pendingAttendance.student.name
+          }
+          type={attendanceType}
+          onConfirm={submitAttendance}
+          onCancel={() => setPendingAttendance(null)}
         />
       )}
     </div>
