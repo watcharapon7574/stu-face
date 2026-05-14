@@ -404,9 +404,12 @@ export default function AttendanceFlow({
     }
   }, [teacher?.id])
 
-  // Filter students based on the teacher's workplace
-  // - First try to map workplace → classroom (e.g. 'ห้องเรียนจิงโจ้' → ห้องจิงโจ้)
-  // - If no classroom match, fall back to service-point match
+  // Resolve the teacher's workplace to a service point (HQ or a unit).
+  // Classroom matching is still used for workplace validation (a teacher
+  // may have workplace = 'ห้องเรียนจิงโจ้') but it is NOT used for filtering
+  // the pickup-dropoff roster: every HQ teacher — regardless of which
+  // classroom they belong to — should see every HQ student so they can
+  // cover for each other across rooms.
   const teacherClassroom = matchWorkplaceToClassroom(
     teacher?.workplace ?? null,
     classrooms
@@ -456,14 +459,12 @@ export default function AttendanceFlow({
     setNeedsWorkplace(false)
   }
 
-  // Visible students: classroom match takes priority, then service point
-  const visibleStudents = teacherClassroom
-    ? students.filter(
-        (s) => (s as { classroom_id?: string | null }).classroom_id === teacherClassroom.id
-      )
-    : teacherSP
-      ? students.filter((s) => s.service_point === teacherSP.short_name)
-      : students
+  // Visible students: scope by the teacher's service point only. HQ
+  // teachers see all HQ students (any classroom); unit teachers see only
+  // their unit's students.
+  const visibleStudents = teacherSP
+    ? students.filter((s) => s.service_point === teacherSP.short_name)
+    : students
 
   const handleAttendanceTypeSelect = (type: 'check_in' | 'check_out') => {
     setAttendanceType(type)
