@@ -776,6 +776,8 @@ function ManageTab({
   const [classrooms, setClassrooms] = useState<ClassroomOption[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [spFilter, setSpFilter] = useState<string>('all') // service-point short_name or 'all'
+  const [classroomFilter, setClassroomFilter] = useState<string>('all') // classroom id or 'all'
   const [editing, setEditing] = useState<StudentRow | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -796,7 +798,25 @@ function ManageTab({
       .catch(() => {})
   }, [])
 
+  const selectedSP = servicePoints.find((sp) => sp.short_name === spFilter)
+  const isHqFilter = !!selectedSP?.is_headquarters
+
+  // Reset classroom filter when SP filter leaves HQ.
+  useEffect(() => {
+    if (!isHqFilter && classroomFilter !== 'all') setClassroomFilter('all')
+  }, [isHqFilter, classroomFilter])
+
   const filtered = students.filter((s) => {
+    // Service point filter (matches stored short_name string)
+    if (spFilter !== 'all' && s.service_point !== spFilter) return false
+
+    // Classroom filter (only meaningful when HQ is selected)
+    if (classroomFilter !== 'all') {
+      const cid = (s as { classroom_id?: string | null }).classroom_id
+      if (cid !== classroomFilter) return false
+    }
+
+    // Free-text search across name / nickname / service_point
     const q = search.trim().toLowerCase()
     if (!q) return true
     return (
@@ -836,6 +856,53 @@ function ManageTab({
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
           />
+        </div>
+
+        {/* Service point / classroom filters */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div className="relative">
+            <MapPin className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <select
+              value={spFilter}
+              onChange={(e) => setSpFilter(e.target.value)}
+              className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400 appearance-none"
+            >
+              <option value="all">ทุกหน่วย / ศูนย์</option>
+              {servicePoints.map((sp) => (
+                <option key={sp.id} value={sp.short_name}>
+                  {sp.short_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {isHqFilter && classrooms.length > 0 && (
+            <div className="relative">
+              <Building2 className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <select
+                value={classroomFilter}
+                onChange={(e) => setClassroomFilter(e.target.value)}
+                className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400 appearance-none"
+              >
+                <option value="all">ทุกห้องเรียน</option>
+                {classrooms.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between text-xs text-gray-400 px-1">
+          <span>พบ {filtered.length} จาก {students.length} คน</span>
+          {(spFilter !== 'all' || classroomFilter !== 'all' || search) && (
+            <button
+              onClick={() => { setSpFilter('all'); setClassroomFilter('all'); setSearch('') }}
+              className="text-cyan-600 hover:text-cyan-700"
+            >
+              ล้างตัวกรอง
+            </button>
+          )}
         </div>
 
         {loading ? (
