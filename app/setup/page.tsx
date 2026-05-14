@@ -93,35 +93,37 @@ export default function SetupPage() {
           </p>
         </div>
 
-        {/* Tabs */}
+        {/* Tabs — single-line labels with tight padding so 3 tabs fit
+            cleanly on narrow phones. Icons already convey context, so
+            the text can be terse. */}
         <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
           <button
             onClick={() => setTab('add')}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+            className={`flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap transition-colors ${
               tab === 'add' ? 'bg-white text-cyan-600 shadow-sm' : 'text-gray-500 hover:text-gray-900'
             }`}
           >
-            <UserPlus className="w-4 h-4" />
-            ลงทะเบียนใหม่
+            <UserPlus className="w-4 h-4 shrink-0" />
+            ลงทะเบียน
           </button>
           <button
             onClick={() => setTab('update')}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+            className={`flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap transition-colors ${
               tab === 'update' ? 'bg-white text-cyan-600 shadow-sm' : 'text-gray-500 hover:text-gray-900'
             }`}
           >
-            <ScanFace className="w-4 h-4" />
+            <ScanFace className="w-4 h-4 shrink-0" />
             อัปเดตใบหน้า
           </button>
           {isAdmin && (
             <button
               onClick={() => setTab('manage')}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              className={`flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap transition-colors ${
                 tab === 'manage' ? 'bg-white text-cyan-600 shadow-sm' : 'text-gray-500 hover:text-gray-900'
               }`}
             >
-              <Settings2 className="w-4 h-4" />
-              จัดการรายชื่อ
+              <Settings2 className="w-4 h-4 shrink-0" />
+              จัดการ
             </button>
           )}
         </div>
