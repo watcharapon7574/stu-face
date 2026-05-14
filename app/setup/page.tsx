@@ -14,8 +14,29 @@ import {
   Loader2,
   Camera,
   CheckCircle2,
+  Settings2,
+  Trash2,
+  Save,
+  X,
 } from 'lucide-react'
 import type { FaceEmbedding } from '@/types/database'
+import { getSavedTeacher } from '@/lib/teacher-store'
+
+// Canonical Thai name prefixes — picked from a dropdown to keep spelling
+// consistent across teachers. Stored concatenated with the rest of the
+// name in std_students.name (no separate column).
+const NAME_PREFIXES = ['เด็กชาย', 'เด็กหญิง', 'นาย', 'นางสาว'] as const
+type NamePrefix = (typeof NAME_PREFIXES)[number]
+
+function splitNamePrefix(full: string): { prefix: NamePrefix | ''; rest: string } {
+  const trimmed = full.trim()
+  for (const p of NAME_PREFIXES) {
+    if (trimmed.startsWith(p)) {
+      return { prefix: p, rest: trimmed.slice(p.length).trim() }
+    }
+  }
+  return { prefix: '', rest: trimmed }
+}
 
 interface ServicePointOption {
   id: string
@@ -34,7 +55,7 @@ interface StudentRow {
   face_embeddings: FaceEmbedding[] | null
 }
 
-type Tab = 'add' | 'update'
+type Tab = 'add' | 'update' | 'manage'
 type AddStep = 'form' | 'camera' | 'saving'
 type UpdateStep = 'pick' | 'camera' | 'saving' | 'done'
 
@@ -42,11 +63,23 @@ export default function SetupPage() {
   const router = useRouter()
   const [tab, setTab] = useState<Tab>('add')
   const [servicePoints, setServicePoints] = useState<ServicePointOption[]>([])
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
     fetch('/api/service-points')
       .then((r) => r.json())
       .then((data) => setServicePoints(data.service_points || []))
+      .catch(() => {})
+  }, [])
+
+  // Check admin status so the management tab only renders for those who
+  // have std_teacher_faces.is_admin = true.
+  useEffect(() => {
+    const saved = getSavedTeacher()
+    if (!saved?.id) return
+    fetch(`/api/profiles/${saved.id}`)
+      .then((r) => r.json())
+      .then((data) => setIsAdmin(!!data?.profile?.is_admin))
       .catch(() => {})
   }, [])
 
@@ -80,12 +113,25 @@ export default function SetupPage() {
             <ScanFace className="w-4 h-4" />
             อัปเดตใบหน้า
           </button>
+          {isAdmin && (
+            <button
+              onClick={() => setTab('manage')}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                tab === 'manage' ? 'bg-white text-cyan-600 shadow-sm' : 'text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              <Settings2 className="w-4 h-4" />
+              จัดการรายชื่อ
+            </button>
+          )}
         </div>
 
-        {tab === 'add' ? (
+        {tab === 'add' && (
           <AddTab servicePoints={servicePoints} onCancel={() => router.push('/')} />
-        ) : (
-          <UpdateTab onCancel={() => router.push('/')} />
+        )}
+        {tab === 'update' && <UpdateTab onCancel={() => router.push('/')} />}
+        {tab === 'manage' && isAdmin && (
+          <ManageTab servicePoints={servicePoints} onCancel={() => router.push('/')} />
         )}
       </div>
     </main>
@@ -110,6 +156,7 @@ function AddTab({
 }) {
   const router = useRouter()
   const [step, setStep] = useState<AddStep>('form')
+  const [prefix, setPrefix] = useState<NamePrefix>('เด็กชาย')
   const [studentName, setStudentName] = useState('')
   const [nickname, setNickname] = useState('')
   const [servicePointId, setServicePointId] = useState('')
@@ -117,6 +164,8 @@ function AddTab({
   const [classrooms, setClassrooms] = useState<ClassroomOption[]>([])
   const [error, setError] = useState<string | null>(null)
   const [skipping, setSkipping] = useState(false)
+
+  const fullName = `${prefix}${studentName.trim()}`
 
   const hqPoints = servicePoints.filter((sp) => sp.is_headquarters)
   const otherPoints = servicePoints.filter((sp) => !sp.is_headquarters)
@@ -137,7 +186,11 @@ function AddTab({
 
   const validateForm = (): boolean => {
     if (!studentName.trim()) {
-      setError('กรุณากรอกชื่อนักเรียน')
+      setError('กรุณากรอกชื่อ-นามสกุล')
+      return false
+    }
+    if (!prefix) {
+      setError('กรุณาเลือกคำนำหน้า')
       return false
     }
     if (!servicePointId) {
@@ -161,7 +214,7 @@ function AddTab({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: studentName,
+          name: fullName,
           nickname: nickname || null,
           service_point: sp?.short_name || null,
           classroom_id: isHqSelected ? classroomId || null : null,
@@ -199,7 +252,7 @@ function AddTab({
       setError(result.message)
       return
     }
-    alert(`บันทึก ${studentName} สำเร็จ! (ยังไม่ได้สแกนใบหน้า — มาอัปเดตภายหลังในแท็บ "อัปเดตใบหน้า")`)
+    alert(`บันทึก ${fullName} สำเร็จ! (ยังไม่ได้สแกนใบหน้า — มาอัปเดตภายหลังในแท็บ "อัปเดตใบหน้า")`)
     router.refresh()
     router.push('/')
   }
@@ -213,7 +266,7 @@ function AddTab({
       setStep('camera')
       return
     }
-    alert(`ลงทะเบียน ${studentName} สำเร็จ!`)
+    alert(`ลงทะเบียน ${fullName} สำเร็จ!`)
     router.refresh()
     router.push('/')
   }
@@ -233,7 +286,7 @@ function AddTab({
     return (
       <div className="space-y-4">
         <CameraCapture
-          studentName={studentName}
+          studentName={fullName}
           onComplete={handleCaptureComplete}
           targetPhotos={5}
         />
@@ -257,6 +310,36 @@ function AddTab({
       </CardHeader>
       <CardContent>
         <form onSubmit={handleNextWithCamera} className="space-y-5">
+          {/* Prefix picker — required, picks one of 4 canonical Thai
+              titles so the name format stays consistent across teachers. */}
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              คำนำหน้า <span className="text-red-500">*</span>
+            </label>
+            <div className="grid grid-cols-4 gap-2">
+              {NAME_PREFIXES.map((p) => (
+                <label
+                  key={p}
+                  className={`flex items-center justify-center px-2 py-2 rounded-xl cursor-pointer transition-colors text-sm border ${
+                    prefix === p
+                      ? 'bg-cyan-50 border-cyan-300 text-cyan-700 font-medium'
+                      : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="prefix"
+                    value={p}
+                    checked={prefix === p}
+                    onChange={() => setPrefix(p)}
+                    className="sr-only"
+                  />
+                  {p}
+                </label>
+              ))}
+            </div>
+          </div>
+
           <div>
             <label htmlFor="name" className="block text-sm font-medium mb-2">
               ชื่อ-นามสกุล <span className="text-red-500">*</span>
@@ -267,9 +350,14 @@ function AddTab({
               value={studentName}
               onChange={(e) => setStudentName(e.target.value)}
               className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
-              placeholder="เช่น ด.ช. สมชาย ใจดี"
+              placeholder="เช่น สมชาย ใจดี"
               required
             />
+            {studentName.trim() && (
+              <p className="text-xs text-gray-400 mt-1">
+                บันทึกเป็น: <span className="text-gray-700 font-medium">{fullName}</span>
+              </p>
+            )}
           </div>
 
           <div>
@@ -669,5 +757,324 @@ function UpdateTab({ onCancel }: { onCancel: () => void }) {
         </Button>
       </CardContent>
     </Card>
+  )
+}
+
+// ====================================================================
+// Manage tab — admin-only: edit / delete any student
+// ====================================================================
+function ManageTab({
+  servicePoints,
+  onCancel,
+}: {
+  servicePoints: ServicePointOption[]
+  onCancel: () => void
+}) {
+  const [students, setStudents] = useState<StudentRow[]>([])
+  const [classrooms, setClassrooms] = useState<ClassroomOption[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [editing, setEditing] = useState<StudentRow | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = () => {
+    setLoading(true)
+    fetch('/api/students?is_active=true')
+      .then((r) => r.json())
+      .then((data) => setStudents(data.students || []))
+      .catch(() => setError('โหลดรายชื่อไม่สำเร็จ'))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    load()
+    fetch('/api/classrooms')
+      .then((r) => r.json())
+      .then((data) => setClassrooms(data.classrooms || []))
+      .catch(() => {})
+  }, [])
+
+  const filtered = students.filter((s) => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    return (
+      s.name.toLowerCase().includes(q) ||
+      (s.nickname || '').toLowerCase().includes(q) ||
+      (s.service_point || '').toLowerCase().includes(q)
+    )
+  })
+
+  const handleDelete = async (s: StudentRow) => {
+    if (!confirm(`ลบ "${s.name}" ออกจากระบบ?\n(ลบไม่ได้แล้วถ้ายืนยัน)`)) return
+    setError(null)
+    try {
+      const res = await fetch(`/api/students/${s.id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('failed')
+      setStudents((prev) => prev.filter((x) => x.id !== s.id))
+    } catch {
+      setError('ลบไม่สำเร็จ')
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>จัดการรายชื่อ</CardTitle>
+        <CardDescription>
+          แก้ไขหรือลบนักเรียน ({students.length} คน) — สำหรับผู้ดูแลระบบ
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="relative">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="ค้นหา ชื่อ / ชื่อเล่น / หน่วยบริการ"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
+          />
+        </div>
+
+        {loading ? (
+          <div className="py-12 text-center">
+            <Loader2 className="w-8 h-8 text-cyan-500 mx-auto animate-spin" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <p className="py-12 text-center text-sm text-gray-400">
+            {students.length === 0 ? 'ยังไม่มีนักเรียนในระบบ' : 'ไม่พบรายชื่อที่ค้นหา'}
+          </p>
+        ) : (
+          <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
+            {filtered.map((s) => (
+              <div
+                key={s.id}
+                className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-gray-900 truncate">
+                    {s.nickname ? `${s.name} (${s.nickname})` : s.name}
+                  </div>
+                  {s.service_point && (
+                    <div className="text-[10px] text-gray-400 inline-flex items-center gap-0.5 mt-0.5">
+                      <MapPin className="w-3 h-3" />
+                      {s.service_point}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => setEditing(s)}
+                  className="p-2 hover:bg-cyan-50 text-cyan-600 rounded-lg"
+                  title="แก้ไข"
+                >
+                  <Settings2 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => handleDelete(s)}
+                  className="p-2 hover:bg-red-50 text-red-500 rounded-lg"
+                  title="ลบ"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-xl text-sm">
+            {error}
+          </div>
+        )}
+
+        <Button variant="ghost" className="w-full text-gray-500" onClick={onCancel}>
+          กลับหน้าแรก
+        </Button>
+      </CardContent>
+
+      {editing && (
+        <ManageEditModal
+          student={editing}
+          servicePoints={servicePoints}
+          classrooms={classrooms}
+          onClose={() => setEditing(null)}
+          onSaved={(updated) => {
+            setStudents((prev) => prev.map((s) => (s.id === updated.id ? updated : s)))
+            setEditing(null)
+          }}
+        />
+      )}
+    </Card>
+  )
+}
+
+function ManageEditModal({
+  student,
+  servicePoints,
+  classrooms,
+  onClose,
+  onSaved,
+}: {
+  student: StudentRow
+  servicePoints: ServicePointOption[]
+  classrooms: ClassroomOption[]
+  onClose: () => void
+  onSaved: (s: StudentRow) => void
+}) {
+  const split = splitNamePrefix(student.name)
+  const [prefix, setPrefix] = useState<NamePrefix>((split.prefix || 'เด็กชาย') as NamePrefix)
+  const [restName, setRestName] = useState(split.rest)
+  const [nickname, setNickname] = useState(student.nickname || '')
+  const initialSP =
+    servicePoints.find((sp) => sp.short_name === student.service_point)?.id || ''
+  const [servicePointId, setServicePointId] = useState(initialSP)
+  const initialClassroom =
+    (student as { classroom_id?: string | null }).classroom_id || ''
+  const [classroomId, setClassroomId] = useState(initialClassroom)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const isHq = !!servicePoints.find((sp) => sp.id === servicePointId)?.is_headquarters
+
+  const handleSave = async () => {
+    if (!restName.trim()) {
+      setErr('กรุณากรอกชื่อ-นามสกุล')
+      return
+    }
+    setSaving(true)
+    setErr(null)
+    const sp = servicePoints.find((s) => s.id === servicePointId)
+    try {
+      const res = await fetch(`/api/students/${student.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: `${prefix}${restName.trim()}`,
+          nickname: nickname.trim() || null,
+          service_point: sp?.short_name || null,
+          classroom_id: isHq ? classroomId || null : null,
+        }),
+      })
+      if (!res.ok) throw new Error('failed')
+      const data = await res.json()
+      onSaved(data.student as StudentRow)
+    } catch {
+      setErr('บันทึกไม่สำเร็จ')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end md:items-center justify-center p-0 md:p-4">
+      <div className="bg-white w-full md:max-w-md md:rounded-2xl rounded-t-2xl max-h-[95vh] flex flex-col">
+        <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-gray-900">แก้ไขข้อมูลนักเรียน</h3>
+            <p className="text-xs text-gray-400">{student.name}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 hover:bg-gray-100 rounded-lg"
+            disabled={saving}
+          >
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">คำนำหน้า</label>
+            <div className="grid grid-cols-4 gap-2">
+              {NAME_PREFIXES.map((p) => (
+                <label
+                  key={p}
+                  className={`flex items-center justify-center px-2 py-2 rounded-xl cursor-pointer transition-colors text-sm border ${
+                    prefix === p
+                      ? 'bg-cyan-50 border-cyan-300 text-cyan-700 font-medium'
+                      : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    checked={prefix === p}
+                    onChange={() => setPrefix(p)}
+                    className="sr-only"
+                    disabled={saving}
+                  />
+                  {p}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">ชื่อ-นามสกุล</label>
+            <input
+              type="text"
+              value={restName}
+              onChange={(e) => setRestName(e.target.value)}
+              disabled={saving}
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">ชื่อเล่น</label>
+            <input
+              type="text"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              disabled={saving}
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">ห้อง / หน่วยบริการ</label>
+            <select
+              value={servicePointId}
+              onChange={(e) => setServicePointId(e.target.value)}
+              disabled={saving}
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400 bg-white"
+            >
+              <option value="">— ไม่ระบุ —</option>
+              {servicePoints.map((sp) => (
+                <option key={sp.id} value={sp.id}>
+                  {sp.short_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {isHq && classrooms.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium mb-2">ห้องเรียน (ศูนย์ฯ หลัก)</label>
+              <select
+                value={classroomId}
+                onChange={(e) => setClassroomId(e.target.value)}
+                disabled={saving}
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-400 bg-white"
+              >
+                <option value="">— ไม่ระบุ —</option>
+                {classrooms.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {err && (
+            <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-xl">{err}</p>
+          )}
+        </div>
+
+        <div className="p-5 border-t border-gray-100">
+          <Button onClick={handleSave} disabled={saving} className="w-full" size="lg">
+            {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+            บันทึก
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }

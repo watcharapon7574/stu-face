@@ -8,16 +8,32 @@ export async function GET(
 ) {
   try {
     const { id } = await params
-    const { data, error } = await supabaseServer
-      .from('profiles')
-      .select('id, prefix, first_name, last_name, nickname, workplace')
-      .eq('id', id)
-      .maybeSingle()
 
-    if (error) throw error
-    if (!data) return NextResponse.json({ error: 'not found' }, { status: 404 })
+    // Join the admin flag from std_teacher_faces so the client can hide
+    // admin-only UI (e.g. the student-management tab in /setup) without a
+    // second round trip.
+    const [profileRes, faceRes] = await Promise.all([
+      supabaseServer
+        .from('profiles')
+        .select('id, prefix, first_name, last_name, nickname, workplace')
+        .eq('id', id)
+        .maybeSingle(),
+      supabaseServer
+        .from('std_teacher_faces' as any)
+        .select('is_admin')
+        .eq('teacher_id', id)
+        .maybeSingle(),
+    ])
 
-    return NextResponse.json({ profile: data })
+    if (profileRes.error) throw profileRes.error
+    if (!profileRes.data) return NextResponse.json({ error: 'not found' }, { status: 404 })
+
+    return NextResponse.json({
+      profile: {
+        ...profileRes.data,
+        is_admin: !!(faceRes.data as { is_admin?: boolean } | null)?.is_admin,
+      },
+    })
   } catch (error) {
     console.error('Profile GET error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
