@@ -95,14 +95,22 @@ export async function POST(request: Request) {
       )
     }
 
+    // Scan location is mandatory now — every attendance row must be tied
+    // to a service point (the row used to be 42% NULL because the client
+    // sent matched?.id || null when GPS failed; the client now falls
+    // back to the teacher's workplace SP, so this should always be set).
+    if (!service_point_id) {
+      return NextResponse.json(
+        { error: 'service_point_id is required' },
+        { status: 400 }
+      )
+    }
+
     const now = new Date().toISOString()
 
-    // Short-circuit duplicate scans: if this student already has the
-    // requested timestamp recorded for today, don't overwrite — surface
-    // the existing record so the UI can say "scanned already at HH:MM".
-    // The race window between this SELECT and the upsert below is tiny
-    // and harmless (two simultaneous first-time scans both succeed via
-    // the atomic upsert).
+    // Look up the existing row for (student_id, date). Both code paths
+    // depend on this — check_in to detect duplicates, check_out to
+    // enforce that a check_in exists first.
     const { data: existing } = await supabaseServer
       .from('std_attendance' as any)
       .select('id, check_in, check_out, guardian_in, guardian_out, student:student_id (id, name, nickname)')
@@ -110,16 +118,31 @@ export async function POST(request: Request) {
       .eq('date', date)
       .maybeSingle()
 
-    if (existing) {
-      if (type === 'check_in' && existing.check_in) {
-        return NextResponse.json({
-          success: true,
-          already_done: true,
-          type: 'check_in',
-          attendance: existing,
-        })
+    // --- check_out branch: must UPDATE an existing row. ---------------
+    // Previously this was an upsert which silently INSERTed when the
+    // student had no morning check_in, leaving orphan rows where
+    // check_out was set but check_in was NULL. Reject that case now.
+    if (type === 'check_out') {
+      if (!existing) {
+        return NextResponse.json(
+          {
+            error: 'no_check_in',
+            message: 'นักเรียนคนนี้ยังไม่ได้เช็คชื่อเข้าวันนี้ — สแกนเข้าก่อน',
+          },
+          { status: 409 }
+        )
       }
-      if (type === 'check_out' && existing.check_out) {
+      if (!existing.check_in) {
+        return NextResponse.json(
+          {
+            error: 'no_check_in',
+            message: 'พบบันทึกวันนี้ แต่ยังไม่มีเวลาเข้า — สแกนเข้าก่อน',
+            attendance: existing,
+          },
+          { status: 409 }
+        )
+      }
+      if (existing.check_out) {
         return NextResponse.json({
           success: true,
           already_done: true,
@@ -127,43 +150,53 @@ export async function POST(request: Request) {
           attendance: existing,
         })
       }
+
+      const { data: updated, error: updateErr } = await supabaseServer
+        .from('std_attendance' as any)
+        .update({
+          check_out: now,
+          confidence_out: confidence,
+          method_out: method,
+          check_out_lat: lat ?? null,
+          check_out_lng: lng ?? null,
+          guardian_out: guardianTrim,
+        })
+        .eq('id', existing.id)
+        .select(`*, student:student_id (*)`)
+        .single()
+
+      if (updateErr) throw updateErr
+
+      return NextResponse.json({ success: true, attendance: updated })
     }
 
-    // Atomic upsert keyed by UNIQUE(student_id, date) — eliminates the
-    // SELECT-then-INSERT race that surfaces during the morning rush when
-    // multiple teachers (or a retry from the same device) hit this route
-    // for the same student in the same instant.
+    // --- check_in branch: upsert (safe — UNIQUE(student_id, date)) ---
+    if (existing?.check_in) {
+      return NextResponse.json({
+        success: true,
+        already_done: true,
+        type: 'check_in',
+        attendance: existing,
+      })
+    }
+
     const upsertPayload: Record<string, unknown> = {
       student_id,
       date,
-      service_point_id: service_point_id || null,
+      service_point_id,
+      check_in: now,
+      confidence_in: confidence,
+      method_in: method,
+      check_in_lat: lat ?? null,
+      check_in_lng: lng ?? null,
+      guardian_in: guardianTrim,
     }
-
     if (teacher_name) upsertPayload.teacher_name = teacher_name
-
-    if (type === 'check_in') {
-      upsertPayload.check_in = now
-      upsertPayload.confidence_in = confidence
-      upsertPayload.method_in = method
-      upsertPayload.check_in_lat = lat ?? null
-      upsertPayload.check_in_lng = lng ?? null
-      upsertPayload.guardian_in = guardianTrim
-    } else {
-      upsertPayload.check_out = now
-      upsertPayload.confidence_out = confidence
-      upsertPayload.method_out = method
-      upsertPayload.check_out_lat = lat ?? null
-      upsertPayload.check_out_lng = lng ?? null
-      upsertPayload.guardian_out = guardianTrim
-    }
 
     const { data: result, error } = await supabaseServer
       .from('std_attendance' as any)
       .upsert(upsertPayload, { onConflict: 'student_id,date' })
-      .select(`
-        *,
-        student:student_id (*)
-      `)
+      .select(`*, student:student_id (*)`)
       .single()
 
     if (error) throw error

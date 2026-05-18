@@ -396,6 +396,8 @@ export default function AttendanceFlow({
   // Surface a "ทำไปแล้ว" success variant when the server reports the
   // student was already scanned for this type today.
   const [alreadyDoneAt, setAlreadyDoneAt] = useState<string | null>(null)
+  // 409 from server when the user tries to scan-out without a check-in.
+  const [submitErrorMsg, setSubmitErrorMsg] = useState<string | null>(null)
   const { status, matched, closest, coords } = useLocationDetection(servicePoints)
 
   // Load saved teacher from localStorage on mount
@@ -527,6 +529,16 @@ export default function AttendanceFlow({
       ? pickedTeacherName
       : teacher?.name || null
 
+    // Every attendance row must carry the SP of the scan location.
+    // Prefer the GPS-matched SP; if GPS didn't match (out of range,
+    // permission denied, errored), fall back to the teacher's
+    // workplace SP. If neither resolves, refuse to submit — the row
+    // would otherwise leave service_point_id NULL.
+    const effectiveSPId = matched?.id ?? teacherSP?.id ?? null
+    if (!effectiveSPId) {
+      throw new Error('ไม่พบหน่วยบริการสำหรับการสแกน — เปิด GPS หรือเลือก workplace ก่อน')
+    }
+
     const response = await apiFetch('/api/attendance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -536,7 +548,7 @@ export default function AttendanceFlow({
         type: attendanceType,
         confidence,
         method,
-        service_point_id: matched?.id || null,
+        service_point_id: effectiveSPId,
         teacher_name: effectiveTeacherName,
         lat: coords?.lat ?? null,
         lng: coords?.lng ?? null,
@@ -544,9 +556,26 @@ export default function AttendanceFlow({
       }),
     })
 
+    const data = await response.json().catch(() => null)
+
+    // Server rejected check-out because no check-in exists today.
+    if (response.status === 409 && data?.error === 'no_check_in') {
+      setPendingAttendance(null)
+      setPickedTeacherName(null)
+      setSelectedStudent(student)
+      setAlreadyDoneAt(null)
+      setSubmitErrorMsg(data.message || 'ยังไม่ได้สแกนเข้าวันนี้ — สแกนเข้าก่อนแล้วค่อยสแกนออก')
+      setMode('success')
+      setTimeout(() => {
+        setMode('select')
+        setSelectedStudent(null)
+        setSubmitErrorMsg(null)
+      }, 3500)
+      return
+    }
+
     if (!response.ok) throw new Error('Failed to record attendance')
 
-    const data = await response.json().catch(() => null)
     const existing = data?.attendance as
       | { check_in?: string | null; check_out?: string | null }
       | null
@@ -560,6 +589,7 @@ export default function AttendanceFlow({
     setPickedTeacherName(null)
     setSelectedStudent(student)
     setAlreadyDoneAt(alreadyTime)
+    setSubmitErrorMsg(null)
     setMode('success')
 
     setTimeout(() => {
@@ -754,20 +784,34 @@ export default function AttendanceFlow({
             see who/when did it) */}
       {mode === 'success' && selectedStudent && (
         <div className="mt-4 flex-1 flex items-center">
-          <Card className={`w-full ${alreadyDoneAt ? 'border-amber-300 bg-amber-50/40' : 'border-gray-200'}`}>
+          <Card
+            className={`w-full ${
+              submitErrorMsg
+                ? 'border-red-300 bg-red-50/40'
+                : alreadyDoneAt
+                  ? 'border-amber-300 bg-amber-50/40'
+                  : 'border-gray-200'
+            }`}
+          >
             <CardContent className="py-12 text-center">
-              {alreadyDoneAt ? (
+              {submitErrorMsg ? (
+                <X className="w-16 h-16 text-red-500 mx-auto mb-4" />
+              ) : alreadyDoneAt ? (
                 <Clock className="w-16 h-16 text-amber-500 mx-auto mb-4" />
               ) : (
                 <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
               )}
               <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                {alreadyDoneAt
-                  ? `สแกน${attendanceType === 'check_in' ? 'เข้า' : 'ออก'}แล้ว`
-                  : 'บันทึกสำเร็จ!'}
+                {submitErrorMsg
+                  ? 'บันทึกไม่ได้'
+                  : alreadyDoneAt
+                    ? `สแกน${attendanceType === 'check_in' ? 'เข้า' : 'ออก'}แล้ว`
+                    : 'บันทึกสำเร็จ!'}
               </h2>
               <p className="text-lg text-gray-700 mb-2">{selectedStudent.name}</p>
-              {alreadyDoneAt ? (
+              {submitErrorMsg ? (
+                <p className="text-sm text-red-700 mb-2">{submitErrorMsg}</p>
+              ) : alreadyDoneAt ? (
                 <p className="text-sm text-amber-700 mb-2">
                   สแกน{attendanceType === 'check_in' ? 'เข้า' : 'ออก'}ไปแล้วเมื่อ{' '}
                   <span className="font-semibold tabular-nums">
@@ -794,7 +838,7 @@ export default function AttendanceFlow({
                   )}
                 </div>
               )}
-              {!alreadyDoneAt && (
+              {!alreadyDoneAt && !submitErrorMsg && (
                 <p className="text-gray-400 mt-2">
                   {attendanceType === 'check_in' ? 'เช็คชื่อเข้า' : 'เช็คชื่อออก'} เรียบร้อยแล้ว
                 </p>
