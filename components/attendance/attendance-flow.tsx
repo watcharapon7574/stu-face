@@ -87,31 +87,57 @@ function AttendanceSelect({
       </div>
 
       <div className="flex flex-col gap-4 flex-1">
-        <button
-          onClick={() => onSelect('check_in')}
-          disabled={isAfternoon}
-          className={`group relative flex-1 rounded-3xl p-6 flex items-center gap-5 transition-all active:scale-[0.97] disabled:pointer-events-none overflow-hidden ${
-            isAfternoon
-              ? 'bg-gray-50/80 border border-gray-100'
-              : 'bg-white border border-cyan-200 shadow-[0_2px_20px_rgba(0,180,200,0.10)] hover:shadow-[0_8px_32px_rgba(0,180,200,0.18)] hover:border-cyan-300'
-          }`}
-        >
-          {!isAfternoon && <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full bg-cyan-50 opacity-60" />}
-          <div className={`relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${isAfternoon ? 'bg-gray-100' : 'bg-gradient-to-br from-cyan-100 to-cyan-50 shadow-sm'}`}>
-            <LogIn className={`w-6 h-6 ${isAfternoon ? 'text-gray-300' : 'text-cyan-600'}`} />
-          </div>
-          <div className="relative flex-1 text-left">
-            <div className={`text-2xl font-bold ${isAfternoon ? 'text-gray-300' : 'text-gray-900'}`}>เช้า</div>
-            <div className={`text-sm ${isAfternoon ? 'text-gray-200' : 'text-gray-400'}`}>Check in</div>
-          </div>
-          {!isAfternoon && (
-            <div className="relative mr-2">
-              <div className="w-10 h-10 rounded-full bg-cyan-500 flex items-center justify-center shadow-lg shadow-cyan-500/30 group-hover:scale-110 transition-transform">
-                <LogIn className="w-5 h-5 text-white" />
-              </div>
+        <div className="flex gap-3 flex-1">
+          <button
+            onClick={() => onSelect('check_in')}
+            disabled={isAfternoon}
+            className={`group relative flex-[3] rounded-3xl p-6 flex items-center gap-5 transition-all active:scale-[0.97] disabled:pointer-events-none overflow-hidden ${
+              isAfternoon
+                ? 'bg-gray-50/80 border border-gray-100'
+                : 'bg-white border border-cyan-200 shadow-[0_2px_20px_rgba(0,180,200,0.10)] hover:shadow-[0_8px_32px_rgba(0,180,200,0.18)] hover:border-cyan-300'
+            }`}
+          >
+            {!isAfternoon && <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full bg-cyan-50 opacity-60" />}
+            <div className={`relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${isAfternoon ? 'bg-gray-100' : 'bg-gradient-to-br from-cyan-100 to-cyan-50 shadow-sm'}`}>
+              <LogIn className={`w-6 h-6 ${isAfternoon ? 'text-gray-300' : 'text-cyan-600'}`} />
             </div>
-          )}
-        </button>
+            <div className="relative flex-1 text-left">
+              <div className={`text-2xl font-bold ${isAfternoon ? 'text-gray-300' : 'text-gray-900'}`}>เช้า</div>
+              <div className={`text-sm ${isAfternoon ? 'text-gray-200' : 'text-gray-400'}`}>Check in</div>
+            </div>
+            {!isAfternoon && (
+              <div className="relative mr-2">
+                <div className="w-10 h-10 rounded-full bg-cyan-500 flex items-center justify-center shadow-lg shadow-cyan-500/30 group-hover:scale-110 transition-transform">
+                  <LogIn className="w-5 h-5 text-white" />
+                </div>
+              </div>
+            )}
+          </button>
+
+          {/* Late check-in — mirrors the 'กลับก่อน' button but for the
+              afternoon: lets a teacher record a check-in even after 12:00
+              for students who arrived late. */}
+          <button
+            onClick={() => onSelect('check_in')}
+            disabled={!isAfternoon}
+            className={`group relative flex-1 rounded-3xl p-3 flex flex-col items-center justify-center gap-1.5 transition-all active:scale-[0.97] disabled:pointer-events-none overflow-hidden ${
+              !isAfternoon
+                ? 'bg-gray-50/80 border border-gray-100'
+                : 'bg-white border border-amber-200 shadow-[0_2px_20px_rgba(245,158,11,0.10)] hover:shadow-[0_8px_32px_rgba(245,158,11,0.18)] hover:border-amber-300'
+            }`}
+            title="ใช้กรณีนักเรียนมาสายหลัง 12:00"
+          >
+            <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${!isAfternoon ? 'bg-gray-100' : 'bg-gradient-to-br from-amber-100 to-amber-50'}`}>
+              <LogIn className={`w-4 h-4 ${!isAfternoon ? 'text-gray-300' : 'text-amber-600'}`} />
+            </div>
+            <div className={`text-sm font-bold leading-tight text-center ${!isAfternoon ? 'text-gray-300' : 'text-gray-900'}`}>
+              มาสาย
+            </div>
+            <div className={`text-[10px] leading-tight ${!isAfternoon ? 'text-gray-200' : 'text-amber-600'}`}>
+              หลัง 12:00
+            </div>
+          </button>
+        </div>
 
         <div className="flex gap-3 flex-1">
           <button
