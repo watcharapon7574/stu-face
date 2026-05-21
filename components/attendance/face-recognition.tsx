@@ -3,7 +3,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Camera, SwitchCamera, Loader2 } from 'lucide-react'
+import { Camera, SwitchCamera, Loader2, X } from 'lucide-react'
 import { detectFaces, initializeHuman, findBestMatches, getFaceTriangulation } from '@/lib/face-detection'
 import { CONFIDENCE_THRESHOLD } from '@/types/database'
 import type { Student, AttendanceMethod } from '@/types/database'
@@ -360,45 +360,71 @@ export default function FaceRecognition({
         </CardContent>
       </Card>
 
-      {/* Suggestions */}
+      {/* Suggestions — modal overlay so the teacher doesn't have to scroll
+          past the camera to see the candidate list */}
       {suggestions && suggestions.length > 0 && (
-        <Card className="bg-gray-950 border-cyan-900/50">
-          <CardContent className="p-4">
-            <h3 className="font-semibold mb-3 text-cyan-400 font-mono">เลือกนักเรียนที่ถูกต้อง</h3>
-            <div className="space-y-2">
-              {suggestions.map((match) => (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setSuggestions(null)}
+        >
+          <Card
+            className="w-full max-w-md bg-gray-950 border-cyan-900/50 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-cyan-400 font-mono">
+                  เลือกนักเรียนที่ถูกต้อง
+                </h3>
                 <button
-                  key={match.student.id}
-                  onClick={() => selectSuggestion(match.student.id, match.confidence)}
-                  className="w-full p-3 border border-cyan-900/40 rounded-lg hover:bg-cyan-950/50 text-left flex items-center justify-between transition-colors"
+                  onClick={() => setSuggestions(null)}
+                  className="p-1.5 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
+                  aria-label="ปิด"
                 >
-                  <div>
-                    <div className="font-medium text-white">{match.student.name}</div>
-                    {match.student.nickname && (
-                      <div className="text-sm text-gray-500">
-                        ({match.student.nickname})
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-mono font-bold text-cyan-400">
-                      {(match.confidence * 100).toFixed(1)}%
-                    </div>
-                    <div className="text-xs text-gray-600">confidence</div>
-                  </div>
+                  <X className="w-5 h-5" />
                 </button>
-              ))}
-            </div>
+              </div>
+              <p className="text-xs text-gray-500 mb-3 font-mono">
+                ระบบพบใบหน้าที่ใกล้เคียง {suggestions.length} คน
+              </p>
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                {suggestions.map((match) => (
+                  <button
+                    key={match.student.id}
+                    onClick={() => selectSuggestion(match.student.id, match.confidence)}
+                    className="w-full p-3 border border-cyan-900/40 rounded-lg hover:bg-cyan-950/50 text-left flex items-center justify-between transition-colors"
+                  >
+                    <div>
+                      <div className="font-medium text-white">{match.student.name}</div>
+                      {match.student.nickname && (
+                        <div className="text-sm text-gray-500">
+                          ({match.student.nickname})
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-mono font-bold text-cyan-400">
+                        {(match.confidence * 100).toFixed(1)}%
+                      </div>
+                      <div className="text-xs text-gray-600">confidence</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
 
-            <Button
-              onClick={onManualSelect}
-              variant="outline"
-              className="w-full mt-3 border-gray-700 text-gray-400 hover:bg-gray-900"
-            >
-              ไม่มีในรายการ - เลือกเอง
-            </Button>
-          </CardContent>
-        </Card>
+              <Button
+                onClick={() => {
+                  setSuggestions(null)
+                  onManualSelect()
+                }}
+                variant="outline"
+                className="w-full mt-3 border-gray-700 text-gray-400 hover:bg-gray-900"
+              >
+                ไม่มีในรายการ - เลือกเอง
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   )

@@ -94,11 +94,30 @@ export default function GuardianPickerModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
       <Card className="w-full max-w-md border-gray-200">
         <CardHeader className="pb-2">
+          {/* Prominent student name banner — teachers must verify the
+              recognized student before continuing, since a single scan can
+              still mis-identify. Make the name impossible to miss. */}
+          <div
+            className={`-mx-6 -mt-6 mb-2 px-5 py-4 rounded-t-lg border-b ${
+              type === 'check_in'
+                ? 'bg-gradient-to-br from-cyan-50 to-white border-cyan-200'
+                : 'bg-gradient-to-br from-violet-50 to-white border-violet-200'
+            }`}
+          >
+            <p className="text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-1">
+              ยืนยันนักเรียน
+            </p>
+            <p className="text-2xl font-bold text-gray-900 leading-tight break-words">
+              {studentName}
+            </p>
+            <p className="text-[11px] text-gray-500 mt-1.5">
+              ⚠️ ตรวจสอบให้แน่ใจว่าเป็นคนนี้ก่อนกดยืนยัน
+            </p>
+          </div>
           <CardTitle className="text-base flex items-center gap-2">
             <User className="w-4 h-4 text-cyan-500" />
             {label}
           </CardTitle>
-          <p className="text-xs text-gray-400 mt-1">นักเรียน: {studentName}</p>
         </CardHeader>
 
         <CardContent className="space-y-3">
