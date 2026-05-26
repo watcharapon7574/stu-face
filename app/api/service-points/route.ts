@@ -11,7 +11,15 @@ export async function GET() {
 
     if (error) throw error
 
-    return NextResponse.json({ service_points: data })
+    const res = NextResponse.json({ service_points: data })
+    // Service points are admin-edited very rarely. Long TTL minimizes ISR
+    // regenerations; service-point writes don't currently bust this route
+    // (add revalidatePath here if a write endpoint is introduced).
+    res.headers.set(
+      'Cache-Control',
+      'public, s-maxage=3600, stale-while-revalidate=86400',
+    )
+    return res
   } catch (error) {
     console.error('Error fetching service points:', error)
     return NextResponse.json(

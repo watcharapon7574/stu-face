@@ -52,7 +52,9 @@ interface StudentRow {
   nickname: string | null
   service_point: string | null
   is_active: boolean
+  // Always [] in slim responses; rely on embedding_count for UI badges.
   face_embeddings: FaceEmbedding[] | null
+  embedding_count?: number
 }
 
 type Tab = 'add' | 'update' | 'manage'
@@ -641,7 +643,7 @@ function UpdateTab({ onCancel }: { onCancel: () => void }) {
                 {picked.nickname ? `${picked.name} (${picked.nickname})` : picked.name}
               </div>
               <div className="text-xs text-gray-500">
-                ใบหน้าเดิม {picked.face_embeddings?.length || 0} ภาพ — ถ่ายใหม่ 5 ภาพเพื่อแทนที่
+                ใบหน้าเดิม {picked.embedding_count ?? picked.face_embeddings?.length ?? 0} ภาพ — ถ่ายใหม่ 5 ภาพเพื่อแทนที่
               </div>
             </div>
           </CardContent>
@@ -708,7 +710,7 @@ function UpdateTab({ onCancel }: { onCancel: () => void }) {
         ) : (
           <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
             {filtered.map((s) => {
-              const embCount = s.face_embeddings?.length || 0
+              const embCount = s.embedding_count ?? s.face_embeddings?.length ?? 0
               return (
                 <button
                   key={s.id}

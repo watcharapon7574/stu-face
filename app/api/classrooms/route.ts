@@ -20,7 +20,13 @@ export async function GET(request: Request) {
     const { data, error } = await query
     if (error) throw error
 
-    return NextResponse.json({ classrooms: data || [] })
+    const res = NextResponse.json({ classrooms: data || [] })
+    // Classrooms are also rarely edited — keep ISR writes infrequent.
+    res.headers.set(
+      'Cache-Control',
+      'public, s-maxage=3600, stale-while-revalidate=86400',
+    )
+    return res
   } catch (error) {
     console.error('Classrooms GET error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
