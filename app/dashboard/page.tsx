@@ -1,8 +1,13 @@
 import { supabaseServer } from '@/lib/supabase/server'
 import DashboardView from '@/components/dashboard/dashboard-view'
 
-// Always fetch fresh data — dashboard reflects today's attendance state
-export const dynamic = 'force-dynamic'
+// Dashboard regenerates primarily via revalidateDashboardReaders() called
+// from attendance writes — that's the freshness source. The 1800s fallback
+// covers the edge case where the day has rolled over but no scan has
+// happened yet (the page reads new Date() at regen time, so we need at
+// least one regen near the day boundary). Down from revalidate=30 which
+// produced ~2,880 ISR writes/day per kiosk fleet.
+export const revalidate = 1800
 
 // Keywords that indicate the teacher works at headquarters
 const HQ_KEYWORDS = ['ห้อง', 'ห้องเรียน', 'Admin', 'ศูนย์การศึกษา']

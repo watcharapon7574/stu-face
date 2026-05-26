@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase/server'
 import { requireBearer } from '@/lib/api-auth'
+import { revalidateDashboardReaders } from '@/lib/revalidate'
 import type { AttendanceMethod } from '@/types/database'
 
 // GET /api/attendance - ดึงข้อมูลการเข้าเรียน
@@ -167,6 +168,7 @@ export async function POST(request: Request) {
 
       if (updateErr) throw updateErr
 
+      revalidateDashboardReaders()
       return NextResponse.json({ success: true, attendance: updated })
     }
 
@@ -201,6 +203,7 @@ export async function POST(request: Request) {
 
     if (error) throw error
 
+    revalidateDashboardReaders()
     return NextResponse.json({
       success: true,
       attendance: result,

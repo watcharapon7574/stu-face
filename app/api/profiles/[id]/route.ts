@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase/server'
+import { revalidateDashboardReaders } from '@/lib/revalidate'
 
 // GET /api/profiles/[id] — minimal teacher self-profile
 export async function GET(
@@ -65,6 +66,10 @@ export async function PATCH(
       .single()
 
     if (error) throw error
+
+    // Dashboard reads profiles.workplace to bucket teachers into service
+    // points — bust it so the new workplace is reflected on next render.
+    revalidateDashboardReaders()
 
     return NextResponse.json({ success: true, profile: data })
   } catch (error) {

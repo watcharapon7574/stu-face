@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase/server'
+import { revalidateDashboardReaders } from '@/lib/revalidate'
 
 const MATCH_THRESHOLD = 0.6 // cosine similarity normalized to 0-1
 
@@ -200,6 +201,7 @@ export async function POST(request: Request) {
       if (error) throw error
     }
 
+    revalidateDashboardReaders()
     return NextResponse.json({
       matched: true,
       attendance_saved: true,
