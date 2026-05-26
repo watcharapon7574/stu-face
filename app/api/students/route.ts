@@ -1,32 +1,32 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase/server'
 import { revalidateStudentReaders } from '@/lib/revalidate'
+import { getSlimStudents } from '@/lib/cache'
 
 // GET /api/students - ดึงรายชื่อนักเรียนทั้งหมด
+// Always SLIM: face_embeddings is [] in the response and embedding_count
+// carries the count for /setup badges. To get real vectors for the
+// face-match flow, hit /api/students/embeddings.
+//
+// Backed by unstable_cache in lib/cache.ts (tag: 'students'), busted by
+// revalidateStudentReaders() on every mutation.
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const servicePoint = searchParams.get('service_point')
-    const isActive = searchParams.get('is_active')
+    const isActiveParam = searchParams.get('is_active')
+    const isActive = isActiveParam === null ? null : isActiveParam === 'true'
 
-    let query = supabaseServer
-      .from('std_students' as any)
-      .select('*')
-      .order('name')
+    const students = await getSlimStudents(servicePoint, isActive)
 
-    if (servicePoint) {
-      query = query.eq('service_point', servicePoint)
-    }
-
-    if (isActive !== null) {
-      query = query.eq('is_active', isActive === 'true')
-    }
-
-    const { data, error } = await query
-
-    if (error) throw error
-
-    return NextResponse.json({ students: data })
+    const res = NextResponse.json({ students })
+    // Edge layer cache. revalidateTag('students') purges both the Data
+    // Cache that getSlimStudents writes and this Edge entry on Vercel.
+    res.headers.set(
+      'Cache-Control',
+      'public, s-maxage=600, stale-while-revalidate=86400',
+    )
+    return res
   } catch (error) {
     console.error('Error fetching students:', error)
     return NextResponse.json(

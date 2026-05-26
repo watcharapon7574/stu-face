@@ -14,6 +14,11 @@ interface FaceRecognitionProps {
   type: 'check_in' | 'check_out'
   onRecognized: (studentId: string, confidence: number, method: AttendanceMethod) => void
   onManualSelect: () => void
+  // False until the parent has finished lazy-loading face embeddings from
+  // /api/students/embeddings. We disable scanning until then so the user
+  // can't accidentally compare against an empty embedding list and trip
+  // the "ไม่พบข้อมูลนักเรียนในระบบ" fallback.
+  embeddingsReady?: boolean
 }
 
 export default function FaceRecognition({
@@ -21,6 +26,7 @@ export default function FaceRecognition({
   type,
   onRecognized,
   onManualSelect,
+  embeddingsReady = true,
 }: FaceRecognitionProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -326,7 +332,7 @@ export default function FaceRecognition({
               so it reads as the obvious next step. */}
           <Button
             onClick={scanFace}
-            disabled={isScanning || !humanReady}
+            disabled={isScanning || !humanReady || !embeddingsReady}
             className="w-full h-14 text-base font-semibold bg-cyan-600 hover:bg-cyan-700 text-white shadow-lg shadow-cyan-900/40 ring-1 ring-cyan-400/30 disabled:opacity-60"
             size="lg"
           >
@@ -334,6 +340,11 @@ export default function FaceRecognition({
               <>
                 <Loader2 className="w-6 h-6 mr-2 animate-spin" />
                 กำลังจดจำ...
+              </>
+            ) : !embeddingsReady ? (
+              <>
+                <Loader2 className="w-6 h-6 mr-2 animate-spin" />
+                กำลังเตรียมข้อมูล...
               </>
             ) : (
               <>

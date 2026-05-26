@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import FaceRecognition from '@/components/attendance/face-recognition'
@@ -355,28 +355,47 @@ export default function AttendanceFlow({
   servicePoints,
   classrooms = [],
 }: AttendanceFlowProps) {
-  // Treat the prop as a server-rendered seed. After mount — and again every
-  // time the user is about to scan — pull the latest students from the API
-  // so freshly added or re-scanned faces (e.g. an embedding saved seconds
-  // ago via /setup) participate in the match. Without this, the in-page
-  // students array stays frozen and the recognizer compares against an old
-  // set, which can confidently mis-match a brand-new face to an existing one.
+  // Treat the prop as a server-rendered seed. The seed carries name/SP only —
+  // face_embeddings is lazy-loaded from /api/students/embeddings the first
+  // time the user enters face-match mode (see hydrateEmbeddings below). This
+  // avoids shipping ~MB of float arrays on every page load to every kiosk.
   const [students, setStudents] = useState<Student[]>(initialStudents)
+  const [embeddingsReady, setEmbeddingsReady] = useState(false)
+  // Track the last hydration timestamp so kiosks left open all day pick
+  // up newly enrolled faces from /setup. After STALE_MS, the next entry
+  // into face mode re-fetches embeddings.
+  const lastHydratedAtRef = useRef<number>(0)
+  const STALE_MS = 5 * 60 * 1000
 
-  const refreshStudents = async () => {
+  const hydrateEmbeddings = useCallback(async () => {
+    const now = Date.now()
+    const fresh = embeddingsReady && now - lastHydratedAtRef.current < STALE_MS
+    if (fresh) return
     try {
-      const res = await fetch('/api/students?is_active=true', { cache: 'no-store' })
+      const res = await fetch('/api/students/embeddings?is_active=true')
       if (!res.ok) return
       const data = await res.json()
-      if (Array.isArray(data.students)) setStudents(data.students as Student[])
+      const list = data?.embeddings as Array<{ id: string; face_embeddings: number[][] }>
+      if (!Array.isArray(list)) return
+      const byId = new Map(list.map((r) => [r.id, r.face_embeddings]))
+      setStudents((prev) =>
+        prev.map((s) => ({ ...s, face_embeddings: byId.get(s.id) ?? s.face_embeddings ?? [] })),
+      )
+      lastHydratedAtRef.current = Date.now()
+      setEmbeddingsReady(true)
     } catch {
-      // Network down — keep whatever we have.
+      // Network down — leave embeddingsReady as-is; the scan button stays
+      // disabled until a successful hydrate.
     }
-  }
+  }, [embeddingsReady])
 
+  // Hydrate as soon as the page mounts so embeddings are ready by the
+  // time the user picks check_in/check_out. This is the canonical race
+  // fix — FaceRecognition's scan button is also gated on embeddingsReady
+  // in case hydrate is still in flight when the user is fast.
   useEffect(() => {
-    refreshStudents()
-  }, [])
+    hydrateEmbeddings()
+  }, [hydrateEmbeddings])
 
   const [mode, setMode] = useState<'select' | 'face' | 'manual' | 'update_face' | 'success'>('select')
   const [attendanceType, setAttendanceType] = useState<'check_in' | 'check_out'>('check_in')
@@ -497,8 +516,10 @@ export default function AttendanceFlow({
   const handleAttendanceTypeSelect = (type: 'check_in' | 'check_out') => {
     setAttendanceType(type)
     setMode('face')
-    // Ensure the recognizer compares against the most recent embeddings.
-    refreshStudents()
+    // If embeddings hydrated >5 min ago, refresh — covers the case where
+    // /setup enrolled a new face while this kiosk was open. No-op if still
+    // fresh.
+    hydrateEmbeddings()
   }
 
   const handleLogout = () => {
@@ -692,6 +713,7 @@ export default function AttendanceFlow({
             type={attendanceType}
             onRecognized={handleFaceRecognized}
             onManualSelect={handleManualSelect}
+            embeddingsReady={embeddingsReady}
           />
 
           <Button
