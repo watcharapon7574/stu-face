@@ -44,7 +44,7 @@ export default function FaceRecognition({
   // Live face mesh tracking is always on — the toggle button was removed and
   // the live preview is part of the default scanning experience.
   const liveTrackingRef = useRef(true)
-  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user')
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
 
   // Track stream in a ref so cleanup actually stops the latest stream
   // (closure-based cleanup with deps=[] would always see the initial null).
@@ -61,7 +61,7 @@ export default function FaceRecognition({
         // camera request if too much async work runs before getUserMedia.
         const mediaStream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: 'user',
+            facingMode: 'environment',
             width: { ideal: 480 },
             height: { ideal: 640 },
           },
