@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
-import { CheckCircle2, Clock, Users, LogIn, LogOut, UserCheck, User, MapPin } from 'lucide-react'
+import { CheckCircle2, Clock, Users, LogIn, LogOut, UserCheck, User, MapPin, Trash2 } from 'lucide-react'
 import type { AttendanceWithRelations } from '@/types/database'
+import { apiFetch } from '@/lib/api'
+import DeleteAttendanceModal from '@/components/attendance/delete-attendance-modal'
 
 interface RealTimeAttendanceProps {
   date?: string
@@ -23,10 +25,37 @@ export default function RealTimeAttendance({
   isHeadquarters = true,
 }: RealTimeAttendanceProps) {
   const [attendance, setAttendance] = useState<AttendanceWithRelations[]>(initialData)
+  // The record the user is about to delete — drives the in-app confirm modal.
+  // Triggered by the trash button on each row; clears when modal closes or
+  // delete completes.
+  const [deleteTarget, setDeleteTarget] = useState<AttendanceWithRelations | null>(null)
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   useEffect(() => {
     setAttendance(initialData)
   }, [initialData])
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    setDeleteSubmitting(true)
+    setDeleteError(null)
+    try {
+      const res = await apiFetch(`/api/attendance/${deleteTarget.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        setDeleteError('ลบไม่สำเร็จ ลองอีกครั้ง')
+        return
+      }
+      // The realtime DELETE event will also drop it, but optimistic removal
+      // keeps the UI snappy on the originating tab.
+      setAttendance((prev) => prev.filter((r) => r.id !== deleteTarget.id))
+      setDeleteTarget(null)
+    } catch {
+      setDeleteError('ลบไม่สำเร็จ ลองอีกครั้ง')
+    } finally {
+      setDeleteSubmitting(false)
+    }
+  }
 
   useEffect(() => {
     // Server-side scope to the selected SP when one is picked so a busy
@@ -209,11 +238,37 @@ export default function RealTimeAttendance({
                     color="violet"
                   />
                 </div>
+
+                {/* Delete — for fixing wrong-pick (duplicate nicknames). */}
+                <button
+                  onClick={() => {
+                    setDeleteError(null)
+                    setDeleteTarget(record)
+                  }}
+                  className="shrink-0 p-2 rounded-lg text-gray-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                  title="ลบบันทึก"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {deleteTarget && (
+        <DeleteAttendanceModal
+          record={deleteTarget}
+          submitting={deleteSubmitting}
+          error={deleteError}
+          onConfirm={confirmDelete}
+          onCancel={() => {
+            if (deleteSubmitting) return
+            setDeleteTarget(null)
+            setDeleteError(null)
+          }}
+        />
+      )}
     </div>
   )
 }

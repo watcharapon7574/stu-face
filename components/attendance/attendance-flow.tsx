@@ -4,8 +4,8 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import FaceRecognition from '@/components/attendance/face-recognition'
-import { CheckCircle2, LogIn, LogOut, Sun, Moon, Clock, MapPin, Loader2, User, X, RefreshCw, Camera, Trash2 } from 'lucide-react'
-import type { Student, AttendanceMethod, AttendanceWithRelations } from '@/types/database'
+import { CheckCircle2, LogIn, LogOut, Sun, Moon, Clock, MapPin, Loader2, User, X, RefreshCw, Camera } from 'lucide-react'
+import type { Student, AttendanceMethod } from '@/types/database'
 import { getCurrentPosition, findNearestServicePoint, findClosestServicePoint, type ServicePoint } from '@/lib/geolocation'
 import { getSavedTeacher, saveTeacher, clearTeacher, type SavedTeacher } from '@/lib/teacher-store'
 import { detectFaces, initializeHuman } from '@/lib/face-detection'
@@ -15,8 +15,6 @@ import WorkplacePromptModal from '@/components/attendance/workplace-prompt-modal
 import GuardianPickerModal from '@/components/attendance/guardian-picker-modal'
 import TeacherPickerModal from '@/components/attendance/teacher-picker-modal'
 import { apiFetch } from '@/lib/api'
-import { bangkokToday } from '@/lib/date'
-import { supabase } from '@/lib/supabase/client'
 
 // --- Location detector ---
 function useLocationDetection(servicePoints: ServicePoint[]) {
@@ -419,17 +417,6 @@ export default function AttendanceFlow({
   const [alreadyDoneAt, setAlreadyDoneAt] = useState<string | null>(null)
   // 409 from server when the user tries to scan-out without a check-in.
   const [submitErrorMsg, setSubmitErrorMsg] = useState<string | null>(null)
-  // Today's attendance for this teacher's SP — shown on the select screen so
-  // a wrong pick (duplicate nicknames) can be removed without going to the
-  // dashboard. Refetched on entry to 'select' mode and after each delete.
-  const [todayAttendance, setTodayAttendance] = useState<AttendanceWithRelations[]>([])
-  const [loadingToday, setLoadingToday] = useState(false)
-  // The record the user is about to delete — drives the in-app confirm modal.
-  // Native confirm()/alert() look terrible on a kiosk touchscreen, so we stay
-  // inside the project's Card/modal vocabulary.
-  const [deleteTarget, setDeleteTarget] = useState<AttendanceWithRelations | null>(null)
-  const [deleteSubmitting, setDeleteSubmitting] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
   const { status, matched, closest, coords } = useLocationDetection(servicePoints)
 
   // Load saved teacher from localStorage on mount
@@ -578,7 +565,7 @@ export default function AttendanceFlow({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         student_id: student.id,
-        date: bangkokToday(),
+        date: new Date().toISOString().split('T')[0],
         type: attendanceType,
         confidence,
         method,
@@ -641,121 +628,6 @@ export default function AttendanceFlow({
     handleFaceRecognized(student.id, 0, 'manual')
   }
 
-  // Track records ref so the realtime subscription effect doesn't need to
-  // re-subscribe on every list change.
-  const todayAttendanceRef = useRef<AttendanceWithRelations[]>([])
-  useEffect(() => {
-    todayAttendanceRef.current = todayAttendance
-  }, [todayAttendance])
-
-  const fetchTodayAttendance = useCallback(
-    async ({ silent }: { silent?: boolean } = {}) => {
-      if (!teacher) return
-      // Without a teacherSP we can't safely scope by short_name — calling the
-      // unfiltered API would return every SP's records, which the kiosk
-      // shouldn't see (and shouldn't be able to delete). Bail out instead.
-      // The WorkplacePromptModal blocks teachers without a workplace, so this
-      // mostly handles the brief window before workplace resolves from server.
-      if (!teacherSP?.short_name) {
-        setTodayAttendance([])
-        return
-      }
-      if (!silent) setLoadingToday(true)
-      try {
-        const qs = new URLSearchParams({
-          date: bangkokToday(),
-          service_point: teacherSP.short_name,
-        })
-        const res = await apiFetch(`/api/attendance?${qs.toString()}`)
-        if (!res.ok) return
-        const data = await res.json()
-        setTodayAttendance(Array.isArray(data.attendance) ? data.attendance : [])
-      } catch {
-        // Network down — leave list as-is.
-      } finally {
-        if (!silent) setLoadingToday(false)
-      }
-    },
-    [teacher?.id, teacherSP?.short_name]
-  )
-
-  // Refresh today's list when the user lands back on the select screen. After
-  // the first load we refetch silently so the list doesn't blink every time
-  // mode swings back from success → select.
-  useEffect(() => {
-    if (mode !== 'select') return
-    const silent = todayAttendanceRef.current.length > 0
-    fetchTodayAttendance({ silent })
-  }, [mode, fetchTodayAttendance])
-
-  // Realtime sync across kiosks at the same SP. Without this, kiosk A deletes
-  // a row and kiosk B keeps showing it until its next mode-change refetch.
-  // Matches the channel pattern already used by the dashboard view.
-  useEffect(() => {
-    if (!teacherSP?.id) return
-    const today = bangkokToday()
-    const channel = supabase
-      .channel(`attendance-flow:${today}:${teacherSP.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'std_attendance',
-          filter: `service_point_id=eq.${teacherSP.id}`,
-        },
-        async (payload) => {
-          if (payload.eventType === 'DELETE') {
-            const oldId = (payload.old as { id?: string }).id
-            if (!oldId) return
-            setTodayAttendance((prev) => prev.filter((r) => r.id !== oldId))
-            return
-          }
-          const newRow = payload.new as { id?: string; date?: string } | null
-          if (!newRow?.id || newRow.date !== today) return
-          const { data: fresh } = await supabase
-            .from('std_attendance' as any)
-            .select('*, student:student_id (id, name, nickname, service_point)')
-            .eq('id', newRow.id)
-            .maybeSingle()
-          if (!fresh) return
-          setTodayAttendance((prev) => {
-            const idx = prev.findIndex((r) => r.id === fresh.id)
-            if (idx >= 0) {
-              const copy = [...prev]
-              copy[idx] = fresh as AttendanceWithRelations
-              return copy
-            }
-            return [fresh as AttendanceWithRelations, ...prev]
-          })
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [teacherSP?.id])
-
-  const confirmDelete = async () => {
-    if (!deleteTarget) return
-    setDeleteSubmitting(true)
-    setDeleteError(null)
-    try {
-      const res = await apiFetch(`/api/attendance/${deleteTarget.id}`, { method: 'DELETE' })
-      if (!res.ok) {
-        setDeleteError('ลบไม่สำเร็จ ลองอีกครั้ง')
-        return
-      }
-      setTodayAttendance((prev) => prev.filter((r) => r.id !== deleteTarget.id))
-      setDeleteTarget(null)
-    } catch {
-      setDeleteError('ลบไม่สำเร็จ ลองอีกครั้ง')
-    } finally {
-      setDeleteSubmitting(false)
-    }
-  }
-
   return (
     <div className="max-w-2xl mx-auto flex flex-col min-h-[calc(100vh-4rem)]">
       {/* Header */}
@@ -811,19 +683,7 @@ export default function AttendanceFlow({
       </div>
 
       {/* Select attendance type */}
-      {mode === 'select' && (
-        <>
-          <AttendanceSelect onSelect={handleAttendanceTypeSelect} />
-          <TodayAttendanceList
-            records={todayAttendance}
-            loading={loadingToday}
-            onDelete={(record) => {
-              setDeleteError(null)
-              setDeleteTarget(record)
-            }}
-          />
-        </>
-      )}
+      {mode === 'select' && <AttendanceSelect onSelect={handleAttendanceTypeSelect} />}
 
       {/* Face recognition mode */}
       {mode === 'face' && (
@@ -1055,212 +915,6 @@ export default function AttendanceFlow({
           }}
         />
       )}
-
-      {/* Delete-attendance confirm — Card modal instead of native confirm(). */}
-      {deleteTarget && (
-        <DeleteAttendanceModal
-          record={deleteTarget}
-          submitting={deleteSubmitting}
-          error={deleteError}
-          onConfirm={confirmDelete}
-          onCancel={() => {
-            if (deleteSubmitting) return
-            setDeleteTarget(null)
-            setDeleteError(null)
-          }}
-        />
-      )}
-    </div>
-  )
-}
-
-// Today's check-ins for the teacher's scope. Lets the teacher delete a row
-// when the wrong student was picked (duplicate nicknames are easy to misclick).
-function TodayAttendanceList({
-  records,
-  loading,
-  onDelete,
-}: {
-  records: AttendanceWithRelations[]
-  loading: boolean
-  onDelete: (record: AttendanceWithRelations) => void
-}) {
-  const formatTime = (iso: string | null) =>
-    iso
-      ? new Date(iso).toLocaleTimeString('th-TH', {
-          hour: '2-digit',
-          minute: '2-digit',
-          timeZone: 'Asia/Bangkok',
-        })
-      : null
-
-  return (
-    <div className="mt-6 bg-white border border-gray-200 rounded-2xl overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-gray-900">รายชื่อที่เช็คชื่อวันนี้</h2>
-        <span className="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded-full tabular-nums">
-          {loading ? (
-            <Loader2 className="w-3 h-3 animate-spin" />
-          ) : (
-            `${records.length} คน`
-          )}
-        </span>
-      </div>
-
-      {!loading && records.length === 0 ? (
-        <div className="py-8 text-center">
-          <Clock className="w-8 h-8 text-gray-200 mx-auto mb-2" />
-          <p className="text-xs text-gray-400">ยังไม่มีการเช็คชื่อวันนี้</p>
-        </div>
-      ) : (
-        <div className="divide-y divide-gray-50 max-h-72 overflow-y-auto">
-          {records.map((record) => {
-            const checkInStr = formatTime(record.check_in)
-            const checkOutStr = formatTime(record.check_out)
-            return (
-              <div
-                key={record.id}
-                className="px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50/50 transition-colors"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-gray-900 text-sm truncate">
-                      {record.student?.name || 'ไม่ทราบชื่อ'}
-                    </span>
-                    {record.student?.nickname && (
-                      <span className="text-xs text-gray-400 truncate">
-                        ({record.student.nickname})
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3 mt-0.5 text-[11px] text-gray-500 tabular-nums">
-                    {checkInStr && (
-                      <span className="inline-flex items-center gap-1 text-green-600">
-                        <LogIn className="w-3 h-3" />
-                        {checkInStr}
-                      </span>
-                    )}
-                    {checkOutStr && (
-                      <span className="inline-flex items-center gap-1 text-violet-600">
-                        <LogOut className="w-3 h-3" />
-                        {checkOutStr}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <button
-                  onClick={() => onDelete(record)}
-                  className="shrink-0 p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                  title="ลบบันทึก"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function DeleteAttendanceModal({
-  record,
-  submitting,
-  error,
-  onConfirm,
-  onCancel,
-}: {
-  record: AttendanceWithRelations
-  submitting: boolean
-  error: string | null
-  onConfirm: () => void
-  onCancel: () => void
-}) {
-  const name = record.student?.nickname
-    ? `${record.student.name} (${record.student.nickname})`
-    : record.student?.name || 'รายการนี้'
-
-  const formatTime = (iso: string | null) =>
-    iso
-      ? new Date(iso).toLocaleTimeString('th-TH', {
-          hour: '2-digit',
-          minute: '2-digit',
-          timeZone: 'Asia/Bangkok',
-        })
-      : null
-
-  const checkInStr = formatTime(record.check_in)
-  const checkOutStr = formatTime(record.check_out)
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <Card className="w-full max-w-md border-gray-200">
-        <CardHeader className="pb-2">
-          <div className="-mx-6 -mt-6 mb-2 px-5 py-4 rounded-t-lg border-b bg-gradient-to-br from-red-50 to-white border-red-200">
-            <p className="text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-1">
-              ยืนยันการลบ
-            </p>
-            <p className="text-2xl font-bold text-gray-900 leading-tight break-words">
-              {name}
-            </p>
-            <p className="text-[11px] text-gray-500 mt-1.5">
-              ⚠️ บันทึกการเช็คชื่อจะถูกลบถาวร
-            </p>
-          </div>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Trash2 className="w-4 h-4 text-red-500" />
-            รายการที่จะลบ
-          </CardTitle>
-        </CardHeader>
-
-        <CardContent className="space-y-3">
-          <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 space-y-1.5">
-            {checkInStr && (
-              <div className="flex items-center gap-2 text-sm text-gray-700">
-                <LogIn className="w-4 h-4 text-green-600" />
-                <span>เช็คชื่อเข้า</span>
-                <span className="ml-auto font-medium tabular-nums">{checkInStr}</span>
-              </div>
-            )}
-            {checkOutStr && (
-              <div className="flex items-center gap-2 text-sm text-gray-700">
-                <LogOut className="w-4 h-4 text-violet-600" />
-                <span>เช็คชื่อออก</span>
-                <span className="ml-auto font-medium tabular-nums">{checkOutStr}</span>
-              </div>
-            )}
-            {!checkInStr && !checkOutStr && (
-              <div className="text-sm text-gray-500">ไม่มีเวลาเช็คชื่อในระบบ</div>
-            )}
-          </div>
-
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-xs text-center">
-              {error}
-            </div>
-          )}
-
-          <div className="flex gap-2 pt-1">
-            <Button
-              variant="outline"
-              onClick={onCancel}
-              disabled={submitting}
-              className="flex-1"
-            >
-              ยกเลิก
-            </Button>
-            <Button
-              onClick={onConfirm}
-              disabled={submitting}
-              className="flex-1 bg-red-600 hover:bg-red-700 text-white"
-            >
-              {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-              ลบบันทึก
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   )
 }
