@@ -3,9 +3,16 @@ import AttendanceFlow from '@/components/attendance/attendance-flow'
 
 export default async function Home() {
   const [studentsResult, servicePointsResult, classroomsResult] = await Promise.all([
+    // SLIM SELECT: never pull face_embeddings here. This is the kiosk home
+    // route ('/'), rendered fresh on every open with no Data Cache — a
+    // select('*') hauled the full ~6MB jsonb embeddings column out of
+    // Supabase on every request, which both blew up Vercel Fast Origin
+    // Transfer and tripped PostgREST's statement timeout (→ the red error
+    // screen). Embeddings are hydrated lazily by the client from
+    // /api/students/embeddings only when face-match mode is entered.
     supabaseServer
       .from('std_students' as any)
-      .select('*')
+      .select('id, name, nickname, service_point, classroom_id, is_active, created_at, updated_at')
       .eq('is_active', true)
       .order('name'),
     supabaseServer
@@ -31,10 +38,18 @@ export default async function Home() {
     )
   }
 
+  // Stub face_embeddings as [] on the seed so existing client types stay
+  // satisfied; the real vectors are fetched lazily from
+  // /api/students/embeddings only when the user enters face-match mode.
+  const slimStudents = (studentsResult.data || []).map((s: Record<string, unknown>) => ({
+    ...s,
+    face_embeddings: [] as number[][],
+  }))
+
   return (
     <main className="min-h-screen p-4 md:p-8">
       <AttendanceFlow
-        students={studentsResult.data || []}
+        students={slimStudents as any}
         servicePoints={servicePointsResult.data || []}
         classrooms={classroomsResult.data || []}
       />

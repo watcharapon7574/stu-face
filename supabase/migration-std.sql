@@ -33,6 +33,18 @@ CREATE TABLE IF NOT EXISTS std_students (
   CONSTRAINT max_20_embeddings CHECK (jsonb_array_length(face_embeddings) <= 20)
 );
 
+-- Stored generated column so the slim roster path can read the face count
+-- without selecting (and transferring) the heavy ~6MB face_embeddings jsonb.
+-- Guarded against non-array values so the expression never errors.
+ALTER TABLE std_students
+  ADD COLUMN IF NOT EXISTS embedding_count INTEGER
+  GENERATED ALWAYS AS (
+    CASE
+      WHEN jsonb_typeof(face_embeddings) = 'array' THEN jsonb_array_length(face_embeddings)
+      ELSE 0
+    END
+  ) STORED;
+
 -- 3. Attendance (การเช็คชื่อเข้า/ออก)
 CREATE TABLE IF NOT EXISTS std_attendance (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

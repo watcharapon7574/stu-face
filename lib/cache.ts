@@ -24,15 +24,15 @@ type SlimStudent = {
 }
 
 // Fetch slim roster (no embeddings), keyed by service_point + is_active.
-// Embedding_count is derived in JS — Supabase JS does not support computed
-// columns over JSONB length without an RPC, and the slim cache only runs
-// on cache miss (~once per revalidate window).
+// embedding_count is read straight from a stored generated column on
+// std_students (jsonb_array_length of face_embeddings) so this never
+// transfers the heavy ~6MB jsonb out of Supabase just to count it.
 export const getSlimStudents = unstable_cache(
   async (servicePoint: string | null, isActive: boolean | null): Promise<SlimStudent[]> => {
     let query = supabaseServer
       .from('std_students' as any)
       .select(
-        'id, name, nickname, service_point, classroom_id, is_active, created_at, updated_at, face_embeddings',
+        'id, name, nickname, service_point, classroom_id, is_active, created_at, updated_at, embedding_count',
       )
       .order('name')
 
@@ -46,16 +46,12 @@ export const getSlimStudents = unstable_cache(
     const { data, error } = await query
     if (error) throw error
 
-    const rows = (data ?? []) as Array<Record<string, unknown> & { face_embeddings?: unknown }>
-    return rows.map((row) => {
-      const embeddings = Array.isArray(row.face_embeddings) ? row.face_embeddings : []
-      const { face_embeddings: _drop, ...rest } = row
-      return {
-        ...(rest as Omit<SlimStudent, 'face_embeddings' | 'embedding_count'>),
-        face_embeddings: [] as never[],
-        embedding_count: embeddings.length,
-      }
-    })
+    const rows = (data ?? []) as Array<Record<string, unknown> & { embedding_count?: number }>
+    return rows.map((row) => ({
+      ...(row as Omit<SlimStudent, 'face_embeddings' | 'embedding_count'>),
+      face_embeddings: [] as never[],
+      embedding_count: typeof row.embedding_count === 'number' ? row.embedding_count : 0,
+    }))
   },
   ['students-slim'],
   { tags: [CACHE_TAGS.students], revalidate: 3600 },
