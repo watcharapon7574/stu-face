@@ -3,16 +3,24 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Camera, SwitchCamera, Loader2, X } from 'lucide-react'
+import { Camera, SwitchCamera, Loader2 } from 'lucide-react'
 import { detectFaces, initializeHuman, findBestMatches, getFaceTriangulation } from '@/lib/face-detection'
-import { CONFIDENCE_THRESHOLD } from '@/types/database'
-import type { Student, AttendanceMethod } from '@/types/database'
+import type { Student, FaceEmbedding } from '@/types/database'
 import FaceMeshOverlay from './face-mesh-overlay'
+
+export interface ScanMatch {
+  student: Student
+  confidence: number
+}
 
 interface FaceRecognitionProps {
   students: Student[]
   type: 'check_in' | 'check_out'
-  onRecognized: (studentId: string, confidence: number, method: AttendanceMethod) => void
+  // Hand the just-scanned embedding + ranked matches up to the parent, which
+  // owns the confirm-identity screen. We no longer auto-accept here: every
+  // scan goes through an explicit confirmation so the teacher can correct a
+  // wrong match, and the scanned face is reused to update the student.
+  onScanResult: (embedding: FaceEmbedding, matches: ScanMatch[]) => void
   onManualSelect: () => void
   // False until the parent has finished lazy-loading face embeddings from
   // /api/students/embeddings. We disable scanning until then so the user
@@ -24,7 +32,7 @@ interface FaceRecognitionProps {
 export default function FaceRecognition({
   students,
   type,
-  onRecognized,
+  onScanResult,
   onManualSelect,
   embeddingsReady = true,
 }: FaceRecognitionProps) {
@@ -34,10 +42,6 @@ export default function FaceRecognition({
   const [isScanning, setIsScanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [humanReady, setHumanReady] = useState(false)
-  const [suggestions, setSuggestions] = useState<Array<{
-    student: Student
-    confidence: number
-  }> | null>(null)
   const [meshPoints, setMeshPoints] = useState<[number, number, number][]>([])
   const [videoDimensions, setVideoDimensions] = useState({ w: 480, h: 640 })
   const [triangulation, setTriangulation] = useState<number[]>([])
@@ -177,7 +181,6 @@ export default function FaceRecognition({
 
     setIsScanning(true)
     setError(null)
-    setSuggestions(null)
 
     try {
       const video = videoRef.current
@@ -220,38 +223,17 @@ export default function FaceRecognition({
         return
       }
 
-      const topMatch = matches[0]
-
-      // Automatic recognition (confidence > 0.85)
-      if (topMatch.confidence >= CONFIDENCE_THRESHOLD.AUTO) {
-        onRecognized(topMatch.student.id, topMatch.confidence, 'auto')
-        setIsScanning(false)
-        return
-      }
-
-      // Show suggestions (0.6 - 0.85)
-      if (topMatch.confidence >= CONFIDENCE_THRESHOLD.SUGGESTION) {
-        setSuggestions(matches)
-        setIsScanning(false)
-        return
-      }
-
-      // Low confidence - ask for manual selection
-      setError('ไม่มั่นใจในการจดจำ กรุณาเลือกนักเรียนเอง')
+      // Hand the scanned face + ranked candidates to the parent. The parent
+      // always shows a confirm-identity screen (even on a high-confidence
+      // match) so the teacher can verify or correct the name before it's
+      // recorded — and the scanned face is reused to keep the student fresh.
+      onScanResult(embeddings[0], matches)
       setIsScanning(false)
-      setTimeout(() => {
-        onManualSelect()
-      }, 1500)
     } catch (err) {
       setError('เกิดข้อผิดพลาด กรุณาลองอีกครั้ง')
       console.error('Scan error:', err)
       setIsScanning(false)
     }
-  }
-
-  const selectSuggestion = (studentId: string, confidence: number) => {
-    onRecognized(studentId, confidence, 'suggestion')
-    setSuggestions(null)
   }
 
   return (
@@ -370,73 +352,6 @@ export default function FaceRecognition({
           </Button>
         </CardContent>
       </Card>
-
-      {/* Suggestions — modal overlay so the teacher doesn't have to scroll
-          past the camera to see the candidate list */}
-      {suggestions && suggestions.length > 0 && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-          onClick={() => setSuggestions(null)}
-        >
-          <Card
-            className="w-full max-w-md bg-gray-950 border-cyan-900/50 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-cyan-400 font-mono">
-                  เลือกนักเรียนที่ถูกต้อง
-                </h3>
-                <button
-                  onClick={() => setSuggestions(null)}
-                  className="p-1.5 text-gray-500 hover:text-gray-300 rounded-lg hover:bg-gray-900 transition-colors"
-                  aria-label="ปิด"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <p className="text-xs text-gray-500 mb-3 font-mono">
-                ระบบพบใบหน้าที่ใกล้เคียง {suggestions.length} คน
-              </p>
-              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-                {suggestions.map((match) => (
-                  <button
-                    key={match.student.id}
-                    onClick={() => selectSuggestion(match.student.id, match.confidence)}
-                    className="w-full p-3 border border-cyan-900/40 rounded-lg hover:bg-cyan-950/50 text-left flex items-center justify-between transition-colors"
-                  >
-                    <div>
-                      <div className="font-medium text-white">{match.student.name}</div>
-                      {match.student.nickname && (
-                        <div className="text-sm text-gray-500">
-                          ({match.student.nickname})
-                        </div>
-                      )}
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm font-mono font-bold text-cyan-400">
-                        {(match.confidence * 100).toFixed(1)}%
-                      </div>
-                      <div className="text-xs text-gray-600">confidence</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              <Button
-                onClick={() => {
-                  setSuggestions(null)
-                  onManualSelect()
-                }}
-                variant="outline"
-                className="w-full mt-3 border-gray-700 text-gray-400 hover:bg-gray-900"
-              >
-                ไม่มีในรายการ - เลือกเอง
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      )}
     </div>
   )
 }

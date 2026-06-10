@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import FaceRecognition from '@/components/attendance/face-recognition'
-import { CheckCircle2, LogIn, LogOut, Sun, Moon, Clock, MapPin, Loader2, User, X, RefreshCw, Camera } from 'lucide-react'
+import FaceRecognition, { type ScanMatch } from '@/components/attendance/face-recognition'
+import { CheckCircle2, LogIn, LogOut, Sun, Moon, Clock, MapPin, Loader2, User, X, RefreshCw, Camera, Check, Search, Users } from 'lucide-react'
 import type { Student, AttendanceMethod } from '@/types/database'
+import { CONFIDENCE_THRESHOLD } from '@/types/database'
 import { getCurrentPosition, findNearestServicePoint, findClosestServicePoint, type ServicePoint } from '@/lib/geolocation'
 import { getSavedTeacher, saveTeacher, clearTeacher, type SavedTeacher } from '@/lib/teacher-store'
 import { detectFaces, initializeHuman } from '@/lib/face-detection'
@@ -343,6 +344,183 @@ function UpdateFaceFlow({
   )
 }
 
+// --- Confirm identity after a scan ---
+// Always shown after a scan (even a high-confidence match) so the teacher
+// verifies the name before it's recorded. If the match is wrong, the teacher
+// picks the correct student here; the just-scanned face is then reused to
+// update that student (see handleConfirmIdentity in the parent).
+function ConfirmIdentity({
+  students,
+  matches,
+  type,
+  onConfirm,
+  onCancel,
+}: {
+  students: Student[]
+  matches: ScanMatch[]
+  type: 'check_in' | 'check_out'
+  onConfirm: (student: Student, confidence: number, method: AttendanceMethod) => void
+  onCancel: () => void
+}) {
+  const top = matches[0]
+  const [chosen, setChosen] = useState<Student | null>(null)
+  // Below the suggestion threshold the top guess is likely wrong, so open the
+  // picker straight away rather than nudging the teacher to rubber-stamp it.
+  const [picking, setPicking] = useState(top.confidence < CONFIDENCE_THRESHOLD.SUGGESTION)
+  const [query, setQuery] = useState('')
+
+  // A manual pick overrides the scan's top match.
+  const proposed = chosen ?? top.student
+  const corrected = chosen != null
+  const confidence = corrected ? 0 : top.confidence
+  const method: AttendanceMethod = corrected
+    ? 'manual'
+    : top.confidence >= CONFIDENCE_THRESHOLD.AUTO
+      ? 'auto'
+      : 'suggestion'
+
+  const lowConfidence = !corrected && top.confidence < CONFIDENCE_THRESHOLD.SUGGESTION
+  const pct = Math.round(confidence * 100)
+  const confColor =
+    top.confidence >= CONFIDENCE_THRESHOLD.AUTO
+      ? 'text-green-600'
+      : top.confidence >= CONFIDENCE_THRESHOLD.SUGGESTION
+        ? 'text-amber-600'
+        : 'text-red-500'
+
+  // Surface the scan's candidates at the top of the list (best first) so a
+  // near-miss correction is one tap away, then the rest of the roster.
+  const matchConf = new Map(matches.map((m) => [m.student.id, m.confidence]))
+  const ordered = [
+    ...matches.map((m) => m.student),
+    ...students.filter((s) => !matchConf.has(s.id)),
+  ]
+  const q = query.trim().toLowerCase()
+  const filtered = q
+    ? ordered.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          (s.nickname?.toLowerCase().includes(q) ?? false),
+      )
+    : ordered
+
+  const label = type === 'check_in' ? 'เข้า' : 'ออก'
+
+  return (
+    <div className="mt-4 space-y-4">
+      <Card className="border-gray-200">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-gray-900 text-lg">ยืนยันชื่อนักเรียน</CardTitle>
+          <p className="text-sm text-gray-400">ตรวจสอบให้ตรงตัวก่อนเช็คชื่อ{label}</p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Proposed student */}
+          <div
+            className={`rounded-2xl border p-4 ${
+              corrected
+                ? 'border-cyan-200 bg-cyan-50/40'
+                : lowConfidence
+                  ? 'border-red-200 bg-red-50/40'
+                  : 'border-gray-200 bg-gray-50/60'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-xs text-gray-400 mb-0.5">
+                  {corrected ? 'เลือกเอง' : 'ระบบจดจำได้'}
+                </div>
+                <div className="text-xl font-bold text-gray-900 truncate">{proposed.name}</div>
+                {proposed.nickname && (
+                  <div className="text-sm text-gray-400">({proposed.nickname})</div>
+                )}
+              </div>
+              {!corrected && (
+                <div className="text-right shrink-0">
+                  <div className={`text-2xl font-bold tabular-nums ${confColor}`}>{pct}%</div>
+                  <div className="text-[10px] text-gray-400">ความมั่นใจ</div>
+                </div>
+              )}
+            </div>
+            {lowConfidence && (
+              <p className="text-xs text-red-600 mt-2">
+                ระบบไม่ค่อยมั่นใจ — กรุณาตรวจสอบหรือเลือกชื่อเอง
+              </p>
+            )}
+          </div>
+
+          {/* Confirm the proposed name. De-emphasised when the guess is
+              low-confidence so the teacher doesn't tap it on autopilot. */}
+          <Button
+            onClick={() => onConfirm(proposed, confidence, method)}
+            variant={lowConfidence ? 'outline' : 'default'}
+            className="w-full h-14 text-base"
+            size="lg"
+          >
+            <Check className="w-5 h-5 mr-2" />
+            ยืนยัน — {proposed.nickname || proposed.name}
+          </Button>
+
+          {/* Correct the name */}
+          {!picking ? (
+            <Button onClick={() => setPicking(true)} variant="outline" className="w-full">
+              <Users className="w-4 h-4 mr-2" />
+              ไม่ใช่คนนี้ — เลือกชื่อเอง
+            </Button>
+          ) : (
+            <div className="space-y-2">
+              <div className="relative">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  autoFocus
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="ค้นหาชื่อ / ชื่อเล่น"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-300"
+                />
+              </div>
+              <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                {filtered.map((s) => {
+                  const c = matchConf.get(s.id)
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => {
+                        setChosen(s)
+                        setPicking(false)
+                        setQuery('')
+                      }}
+                      className="w-full p-3 border border-gray-200 rounded-xl hover:bg-cyan-50/60 text-left flex items-center justify-between transition-colors"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-medium text-gray-900 text-sm truncate">{s.name}</div>
+                        {s.nickname && (
+                          <div className="text-xs text-gray-400">({s.nickname})</div>
+                        )}
+                      </div>
+                      {c != null && (
+                        <span className="text-xs font-mono text-gray-400 shrink-0 ml-2">
+                          {Math.round(c * 100)}%
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+                {filtered.length === 0 && (
+                  <p className="text-sm text-gray-400 text-center py-4">ไม่พบชื่อนี้</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          <Button onClick={onCancel} variant="outline" className="w-full text-gray-500">
+            ยกเลิก / สแกนใหม่
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 // --- Main ---
 interface AttendanceFlowProps {
   students: Student[]
@@ -397,10 +575,15 @@ export default function AttendanceFlow({
     hydrateEmbeddings()
   }, [hydrateEmbeddings])
 
-  const [mode, setMode] = useState<'select' | 'face' | 'manual' | 'update_face' | 'success'>('select')
+  const [mode, setMode] = useState<'select' | 'face' | 'confirm' | 'manual' | 'update_face' | 'success'>('select')
   const [attendanceType, setAttendanceType] = useState<'check_in' | 'check_out'>('check_in')
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
   const [updatingStudent, setUpdatingStudent] = useState<Student | null>(null)
+  // The face captured by the last scan + its ranked candidates. The embedding
+  // is reused to update whichever student the teacher confirms (rolling
+  // buffer), so recognition keeps improving on every scan.
+  const [scannedEmbedding, setScannedEmbedding] = useState<FaceEmbedding | null>(null)
+  const [scanMatches, setScanMatches] = useState<ScanMatch[]>([])
   const [teacher, setTeacher] = useState<SavedTeacher | null>(null)
   const [needsWorkplace, setNeedsWorkplace] = useState(false)
   const [pendingAttendance, setPendingAttendance] = useState<{
@@ -540,6 +723,59 @@ export default function AttendanceFlow({
     setPendingAttendance({ student, confidence, method })
   }
 
+  // A scan produced a face + candidates. Hold them and show the confirm
+  // screen so the teacher verifies (or corrects) the name. The embedding is
+  // applied to the final student only once attendance is actually recorded
+  // (see submitAttendance), so a back-out-then-correct can't learn the wrong
+  // student.
+  const handleScanResult = (embedding: FaceEmbedding, matches: ScanMatch[]) => {
+    setScannedEmbedding(embedding)
+    setScanMatches(matches)
+    setMode('confirm')
+  }
+
+  // Append the just-scanned face to a student's embeddings (rolling buffer,
+  // server trims to 20). Also reflect it locally so recognition improves this
+  // session without waiting for the next hydrate. Non-critical: failure here
+  // must not block attendance.
+  const saveScannedFace = useCallback(
+    async (studentId: string, embedding: FaceEmbedding) => {
+      try {
+        await apiFetch(`/api/students/${studentId}/embeddings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ embedding }),
+        })
+        setStudents((prev) =>
+          prev.map((s) =>
+            s.id === studentId
+              ? {
+                  ...s,
+                  face_embeddings: [
+                    ...((s.face_embeddings as FaceEmbedding[] | null) ?? []),
+                    embedding,
+                  ].slice(-20),
+                }
+              : s,
+          ),
+        )
+      } catch {
+        // ignore — attendance still proceeds; the face just won't refresh
+      }
+    },
+    [],
+  )
+
+  // Teacher confirmed who the scanned face belongs to. Hold it; the face is
+  // learned in submitAttendance once the row is actually recorded.
+  const handleConfirmIdentity = (
+    student: Student,
+    confidence: number,
+    method: AttendanceMethod
+  ) => {
+    setPendingAttendance({ student, confidence, method })
+  }
+
   const submitAttendance = async (guardian: string) => {
     if (!pendingAttendance) return
     const { student, confidence, method } = pendingAttendance
@@ -584,6 +820,8 @@ export default function AttendanceFlow({
       setPendingAttendance(null)
       setPickedTeacherName(null)
       setSelectedStudent(student)
+      setScannedEmbedding(null)
+      setScanMatches([])
       setAlreadyDoneAt(null)
       setSubmitErrorMsg(data.message || 'ยังไม่ได้สแกนเข้าวันนี้ — สแกนเข้าก่อนแล้วค่อยสแกนออก')
       setMode('success')
@@ -597,6 +835,14 @@ export default function AttendanceFlow({
 
     if (!response.ok) throw new Error('Failed to record attendance')
 
+    // Learn the scanned face now that the row is recorded, keyed to the
+    // student that actually got the attendance — not whoever was tentatively
+    // confirmed earlier. Manual (non-scan) selections leave scannedEmbedding
+    // null, so they don't learn anything. Fire-and-forget.
+    if (scannedEmbedding) {
+      saveScannedFace(student.id, scannedEmbedding)
+    }
+
     const existing = data?.attendance as
       | { check_in?: string | null; check_out?: string | null }
       | null
@@ -609,6 +855,8 @@ export default function AttendanceFlow({
     setPendingAttendance(null)
     setPickedTeacherName(null)
     setSelectedStudent(student)
+    setScannedEmbedding(null)
+    setScanMatches([])
     setAlreadyDoneAt(alreadyTime)
     setSubmitErrorMsg(null)
     setMode('success')
@@ -621,6 +869,10 @@ export default function AttendanceFlow({
   }
 
   const handleManualSelect = () => {
+    // Entering manual selection without a scan: drop any leftover scanned face
+    // so a previous scan's embedding can't attach to a hand-picked student.
+    setScannedEmbedding(null)
+    setScanMatches([])
     setMode('manual')
   }
 
@@ -711,7 +963,7 @@ export default function AttendanceFlow({
           <FaceRecognition
             students={visibleStudents}
             type={attendanceType}
-            onRecognized={handleFaceRecognized}
+            onScanResult={handleScanResult}
             onManualSelect={handleManualSelect}
             embeddingsReady={embeddingsReady}
           />
@@ -724,6 +976,22 @@ export default function AttendanceFlow({
             ยกเลิก
           </Button>
         </div>
+      )}
+
+      {/* Confirm identity after a scan — always shown so a wrong match can be
+          corrected before recording, and the scanned face updates the student. */}
+      {mode === 'confirm' && scanMatches.length > 0 && (
+        <ConfirmIdentity
+          students={visibleStudents}
+          matches={scanMatches}
+          type={attendanceType}
+          onConfirm={handleConfirmIdentity}
+          onCancel={() => {
+            setScannedEmbedding(null)
+            setScanMatches([])
+            setMode('face')
+          }}
+        />
       )}
 
       {/* Manual selection mode */}
