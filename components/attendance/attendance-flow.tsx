@@ -16,6 +16,13 @@ import WorkplacePromptModal from '@/components/attendance/workplace-prompt-modal
 import GuardianPickerModal from '@/components/attendance/guardian-picker-modal'
 import TeacherPickerModal from '@/components/attendance/teacher-picker-modal'
 import { apiFetch } from '@/lib/api'
+import {
+  loadCachedEmbeddings,
+  saveCachedEmbeddings,
+  patchCachedEmbedding,
+  rosterFingerprint,
+  type EmbeddingRow,
+} from '@/lib/embeddings-cache'
 
 // --- Location detector ---
 function useLocationDetection(servicePoints: ServicePoint[]) {
@@ -544,18 +551,64 @@ export default function AttendanceFlow({
   // into face mode re-fetches embeddings.
   const lastHydratedAtRef = useRef<number>(0)
   const STALE_MS = 5 * 60 * 1000
+  // How long an IndexedDB embeddings snapshot is trusted before we re-pull the
+  // authoritative copy from the server (picks up cross-device learning and
+  // existing-student re-enrolls that don't change the roster id set).
+  const MAX_CACHE_AGE_MS = 60 * 60 * 1000
 
   const hydrateEmbeddings = useCallback(async () => {
     const now = Date.now()
     const fresh = embeddingsReady && now - lastHydratedAtRef.current < STALE_MS
     if (fresh) return
     try {
-      const res = await fetch('/api/students/embeddings?is_active=true')
-      if (!res.ok) return
-      const data = await res.json()
-      const list = data?.embeddings as Array<{ id: string; face_embeddings: number[][] }>
-      if (!Array.isArray(list)) return
-      const byId = new Map(list.map((r) => [r.id, r.face_embeddings]))
+      // Cheap roster check first: the slim list is a few KB (no vectors) and
+      // edge-cached. Its id set tells us whether the heavy embeddings payload
+      // could have meaningfully changed, so we can skip the multi-MB download
+      // on the common case where the roster is unchanged.
+      let fingerprint: string | null = null
+      try {
+        const slimRes = await fetch('/api/students?is_active=true')
+        if (slimRes.ok) {
+          const slim = (await slimRes.json())?.students as Array<{ id: string }> | undefined
+          if (Array.isArray(slim)) fingerprint = rosterFingerprint(slim.map((s) => s.id))
+        }
+      } catch {
+        // slim fetch failed — fall through and lean on whatever's cached
+      }
+
+      const cached = await loadCachedEmbeddings()
+      const cacheUsable =
+        cached != null &&
+        (fingerprint === null || cached.fingerprint === fingerprint) &&
+        now - cached.savedAt < MAX_CACHE_AGE_MS
+
+      let rows: EmbeddingRow[]
+      if (cacheUsable && cached) {
+        rows = cached.rows
+      } else {
+        const res = await fetch('/api/students/embeddings?is_active=true')
+        if (!res.ok) {
+          // Origin unreachable but we have a snapshot — use it rather than
+          // leaving the kiosk unable to scan.
+          if (cached) {
+            rows = cached.rows
+          } else {
+            return
+          }
+        } else {
+          const data = await res.json()
+          const list = data?.embeddings as EmbeddingRow[] | undefined
+          if (!Array.isArray(list)) return
+          rows = list
+          await saveCachedEmbeddings({
+            fingerprint: fingerprint ?? cached?.fingerprint ?? '',
+            savedAt: now,
+            rows,
+          })
+        }
+      }
+
+      const byId = new Map(rows.map((r) => [r.id, r.face_embeddings]))
       setStudents((prev) =>
         prev.map((s) => ({ ...s, face_embeddings: byId.get(s.id) ?? s.face_embeddings ?? [] })),
       )
@@ -759,6 +812,9 @@ export default function AttendanceFlow({
               : s,
           ),
         )
+        // Persist into the IndexedDB snapshot too so a page reload keeps the
+        // just-learned face instead of reverting to the older cached copy.
+        patchCachedEmbedding(studentId, embedding)
       } catch {
         // ignore — attendance still proceeds; the face just won't refresh
       }

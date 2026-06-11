@@ -28,22 +28,22 @@ export async function POST(
 
     if (error) throw error
 
-    // ดึงข้อมูลนักเรียนที่อัพเดตแล้ว
-    const { data: student, error: fetchError } = await supabaseServer
-      .from('std_students' as any)
-      .select('*')
-      .eq('id', id)
-      .single()
-
-    if (fetchError) throw fetchError
-
-    revalidateStudentReaders()
-
-    return NextResponse.json({
-      success: true,
-      student,
-      embeddings_count: (student.face_embeddings as any[])?.length ?? 0
-    })
+    // NOTE: intentionally do NOT revalidate the student caches here.
+    // This endpoint is the per-scan "learn this face" rolling update — it
+    // fires on every successful check-in. Busting the 'students-embeddings'
+    // tag would purge the Vercel edge cache for /api/students/embeddings
+    // (the ~6MB face-vector payload) on every scan, forcing every kiosk's
+    // next hydrate to re-download it from origin — a huge Fast Origin
+    // Transfer spike during morning check-in. The scanning kiosk already
+    // updated its in-memory copy locally; other kiosks pick up the new
+    // embedding on the next hourly cache cycle, which is fine for a
+    // background recognition-improvement step. (Deliberate enrolls via
+    // /setup use PUT, which still revalidates.)
+    //
+    // We also skip re-selecting the student row: the caller ignores the
+    // response body, and select('*') would haul the full face_embeddings
+    // jsonb back out of Supabase on every scan for nothing.
+    return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Error adding embedding:', error)
     return NextResponse.json(
