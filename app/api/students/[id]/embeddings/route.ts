@@ -21,9 +21,12 @@ export async function POST(
     }
 
     // ใช้ function ที่สร้างไว้ใน database เพื่อจัดการ rolling update
-    const { error } = await supabaseServer.rpc('add_student_embedding', {
-      student_uuid: id,
-      new_embedding: embedding,
+    // NOTE: the live function is std_add_embedding — the old name
+    // add_student_embedding (from legacy schema.sql) never existed in this
+    // project's DB, so this endpoint had been silently failing.
+    const { error } = await supabaseServer.rpc('std_add_embedding', {
+      p_student_id: id,
+      p_embedding: embedding,
     })
 
     if (error) throw error

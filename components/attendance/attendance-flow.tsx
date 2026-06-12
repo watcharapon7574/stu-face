@@ -16,6 +16,7 @@ import WorkplacePromptModal from '@/components/attendance/workplace-prompt-modal
 import GuardianPickerModal from '@/components/attendance/guardian-picker-modal'
 import TeacherPickerModal from '@/components/attendance/teacher-picker-modal'
 import { apiFetch } from '@/lib/api'
+import { supabase } from '@/lib/supabase/client'
 import {
   loadCachedEmbeddings,
   saveCachedEmbeddings,
@@ -552,28 +553,40 @@ export default function AttendanceFlow({
   const lastHydratedAtRef = useRef<number>(0)
   const STALE_MS = 5 * 60 * 1000
   // How long an IndexedDB embeddings snapshot is trusted before we re-pull the
-  // authoritative copy from the server (picks up cross-device learning and
-  // existing-student re-enrolls that don't change the roster id set).
-  const MAX_CACHE_AGE_MS = 60 * 60 * 1000
+  // authoritative copy (picks up cross-device learning and existing-student
+  // re-enrolls that don't change the roster id set). 24h: the roster
+  // fingerprint catches enrolls/removals immediately, and per-scan learning
+  // is patched into the snapshot locally, so a daily authoritative refresh
+  // is plenty.
+  const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000
 
   const hydrateEmbeddings = useCallback(async () => {
     const now = Date.now()
     const fresh = embeddingsReady && now - lastHydratedAtRef.current < STALE_MS
     if (fresh) return
     try {
-      // Cheap roster check first: the slim list is a few KB (no vectors) and
-      // edge-cached. Its id set tells us whether the heavy embeddings payload
-      // could have meaningfully changed, so we can skip the multi-MB download
-      // on the common case where the roster is unchanged.
+      // Cheap roster check first: just the active ids (a few KB). Direct from
+      // Supabase (thin-client path); fall back to the Vercel API route if the
+      // direct call fails. The id set tells us whether the heavy embeddings
+      // payload could have meaningfully changed, so we can skip the multi-MB
+      // download on the common case where the roster is unchanged.
       let fingerprint: string | null = null
       try {
-        const slimRes = await fetch('/api/students?is_active=true')
-        if (slimRes.ok) {
-          const slim = (await slimRes.json())?.students as Array<{ id: string }> | undefined
-          if (Array.isArray(slim)) fingerprint = rosterFingerprint(slim.map((s) => s.id))
+        const { data: ids, error } = await supabase
+          .from('std_students')
+          .select('id')
+          .eq('is_active', true)
+        if (!error && Array.isArray(ids)) {
+          fingerprint = rosterFingerprint(ids.map((s) => s.id as string))
+        } else {
+          const slimRes = await fetch('/api/students?is_active=true')
+          if (slimRes.ok) {
+            const slim = (await slimRes.json())?.students as Array<{ id: string }> | undefined
+            if (Array.isArray(slim)) fingerprint = rosterFingerprint(slim.map((s) => s.id))
+          }
         }
       } catch {
-        // slim fetch failed — fall through and lean on whatever's cached
+        // roster check failed — fall through and lean on whatever's cached
       }
 
       const cached = await loadCachedEmbeddings()
@@ -586,25 +599,44 @@ export default function AttendanceFlow({
       if (cacheUsable && cached) {
         rows = cached.rows
       } else {
-        const res = await fetch('/api/students/embeddings?is_active=true')
-        if (!res.ok) {
-          // Origin unreachable but we have a snapshot — use it rather than
-          // leaving the kiosk unable to scan.
-          if (cached) {
-            rows = cached.rows
-          } else {
-            return
+        // Heavy payload: prefer Supabase direct (PostgREST gzips the JSON),
+        // fall back to the Vercel API route, then to any stale snapshot.
+        let fetched: EmbeddingRow[] | null = null
+        try {
+          const { data, error } = await supabase
+            .from('std_students')
+            .select('id, face_embeddings')
+            .eq('is_active', true)
+          if (!error && Array.isArray(data)) {
+            fetched = (data as Array<{ id: string; face_embeddings: unknown }>)
+              .filter((r) => Array.isArray(r.face_embeddings) && (r.face_embeddings as unknown[]).length > 0)
+              .map((r) => ({ id: r.id, face_embeddings: r.face_embeddings as number[][] }))
           }
-        } else {
-          const data = await res.json()
-          const list = data?.embeddings as EmbeddingRow[] | undefined
-          if (!Array.isArray(list)) return
-          rows = list
+        } catch {
+          // direct path down — try the API route below
+        }
+        if (!fetched) {
+          const res = await fetch('/api/students/embeddings?is_active=true')
+          if (res.ok) {
+            const data = await res.json()
+            const list = data?.embeddings as EmbeddingRow[] | undefined
+            if (Array.isArray(list)) fetched = list
+          }
+        }
+
+        if (fetched) {
+          rows = fetched
           await saveCachedEmbeddings({
             fingerprint: fingerprint ?? cached?.fingerprint ?? '',
             savedAt: now,
             rows,
           })
+        } else if (cached) {
+          // Both origins unreachable but we have a snapshot — use it rather
+          // than leaving the kiosk unable to scan.
+          rows = cached.rows
+        } else {
+          return
         }
       }
 
@@ -794,11 +826,21 @@ export default function AttendanceFlow({
   const saveScannedFace = useCallback(
     async (studentId: string, embedding: FaceEmbedding) => {
       try {
-        await apiFetch(`/api/students/${studentId}/embeddings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ embedding }),
+        // Direct SECURITY DEFINER RPC (thin-client path) — anon is read-only
+        // on std_students itself; the rolling 20-embedding trim lives in the
+        // function. Fall back to the API route if the direct call fails.
+        const { error } = await supabase.rpc('std_add_embedding', {
+          p_student_id: studentId,
+          p_embedding: embedding,
         })
+        if (error) {
+          const res = await apiFetch(`/api/students/${studentId}/embeddings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ embedding }),
+          })
+          if (!res.ok) return
+        }
         setStudents((prev) =>
           prev.map((s) =>
             s.id === studentId
@@ -852,34 +894,71 @@ export default function AttendanceFlow({
       throw new Error('ไม่พบหน่วยบริการสำหรับการสแกน — เปิด GPS หรือเลือก workplace ก่อน')
     }
 
-    const response = await apiFetch('/api/attendance', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        student_id: student.id,
-        date: new Date().toISOString().split('T')[0],
-        type: attendanceType,
-        confidence,
-        method,
-        service_point_id: effectiveSPId,
-        teacher_name: effectiveTeacherName,
-        lat: coords?.lat ?? null,
-        lng: coords?.lng ?? null,
-        guardian,
-      }),
+    const today = new Date().toISOString().split('T')[0]
+
+    // Thin-client path: write through the SECURITY DEFINER RPC directly
+    // (anon is read-only on std_attendance itself). Falls back to the
+    // Vercel API route if the direct call errors, so a kiosk keeps working
+    // through either origin. Both paths normalize to the same result shape.
+    type SubmitResult = {
+      success?: boolean
+      error?: string
+      message?: string
+      already_done?: boolean
+      attendance?: { check_in?: string | null; check_out?: string | null } | null
+    }
+    let result: SubmitResult | null = null
+
+    const { data: rpcData, error: rpcError } = await supabase.rpc('record_attendance', {
+      p_student_id: student.id,
+      p_date: today,
+      p_type: attendanceType,
+      p_method: method,
+      p_service_point_id: effectiveSPId,
+      p_confidence: confidence,
+      p_teacher_name: effectiveTeacherName,
+      p_lat: coords?.lat ?? null,
+      p_lng: coords?.lng ?? null,
+      p_guardian: guardian,
     })
+    if (!rpcError && rpcData) {
+      result = rpcData as SubmitResult
+    } else {
+      const response = await apiFetch('/api/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          student_id: student.id,
+          date: today,
+          type: attendanceType,
+          confidence,
+          method,
+          service_point_id: effectiveSPId,
+          teacher_name: effectiveTeacherName,
+          lat: coords?.lat ?? null,
+          lng: coords?.lng ?? null,
+          guardian,
+        }),
+      })
+      const data = (await response.json().catch(() => null)) as SubmitResult | null
+      if (response.status === 409 && data?.error === 'no_check_in') {
+        result = data
+      } else if (!response.ok) {
+        throw new Error('Failed to record attendance')
+      } else {
+        result = data
+      }
+    }
 
-    const data = await response.json().catch(() => null)
-
-    // Server rejected check-out because no check-in exists today.
-    if (response.status === 409 && data?.error === 'no_check_in') {
+    // Rejected check-out because no check-in exists today.
+    if (result?.error === 'no_check_in') {
       setPendingAttendance(null)
       setPickedTeacherName(null)
       setSelectedStudent(student)
       setScannedEmbedding(null)
       setScanMatches([])
       setAlreadyDoneAt(null)
-      setSubmitErrorMsg(data.message || 'ยังไม่ได้สแกนเข้าวันนี้ — สแกนเข้าก่อนแล้วค่อยสแกนออก')
+      setSubmitErrorMsg(result.message || 'ยังไม่ได้สแกนเข้าวันนี้ — สแกนเข้าก่อนแล้วค่อยสแกนออก')
       setMode('success')
       setTimeout(() => {
         setMode('select')
@@ -889,7 +968,7 @@ export default function AttendanceFlow({
       return
     }
 
-    if (!response.ok) throw new Error('Failed to record attendance')
+    if (!result?.success) throw new Error('Failed to record attendance')
 
     // Learn the scanned face now that the row is recorded, keyed to the
     // student that actually got the attendance — not whoever was tentatively
@@ -899,10 +978,8 @@ export default function AttendanceFlow({
       saveScannedFace(student.id, scannedEmbedding)
     }
 
-    const existing = data?.attendance as
-      | { check_in?: string | null; check_out?: string | null }
-      | null
-    const alreadyTime = data?.already_done
+    const existing = result.attendance ?? null
+    const alreadyTime = result.already_done
       ? attendanceType === 'check_in'
         ? existing?.check_in ?? null
         : existing?.check_out ?? null
