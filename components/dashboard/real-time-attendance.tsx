@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase/client'
 import { CheckCircle2, Clock, Users, LogIn, LogOut, UserCheck, User, MapPin, Trash2 } from 'lucide-react'
 import type { AttendanceWithRelations } from '@/types/database'
 import { apiFetch } from '@/lib/api'
+import { bangkokToday } from '@/lib/date'
 import DeleteAttendanceModal from '@/components/attendance/delete-attendance-modal'
 
 interface RealTimeAttendanceProps {
@@ -17,7 +18,7 @@ interface RealTimeAttendanceProps {
 }
 
 export default function RealTimeAttendance({
-  date = new Date().toISOString().split('T')[0],
+  date = bangkokToday(),
   initialData = [],
   totalStudents = 0,
   servicePointId,
@@ -78,7 +79,9 @@ export default function RealTimeAttendance({
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             const { data: newRecord } = await supabase
               .from('std_attendance' as any)
-              .select('*, student:student_id (*)')
+              // Slim student select — face_embeddings (~6MB jsonb) must never
+              // ride along on this per-event refetch.
+              .select('*, student:student_id (id, name, nickname)')
               .eq('id', payload.new.id)
               .single()
 

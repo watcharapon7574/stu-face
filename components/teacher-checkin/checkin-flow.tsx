@@ -22,6 +22,7 @@ import { getSavedTeacher, saveTeacher, clearTeacher, type SavedTeacher } from '@
 import { getDeviceFingerprint } from '@/lib/device-fingerprint'
 import { saveCheckinStatus, getCheckinStatus } from '@/lib/teacher-checkin-store'
 import { getCurrentPosition } from '@/lib/geolocation'
+import { bangkokToday } from '@/lib/date'
 import TeacherEnrollment from './teacher-enrollment'
 import FaceCapture, { type VerifyResult } from './face-capture'
 
@@ -88,7 +89,7 @@ export default function CheckinFlow({ loginComponent }: CheckinFlowProps) {
   // Late reason flow
   const [lateReason, setLateReason] = useState('')
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = bangkokToday()
 
   useEffect(() => {
     initFlow()

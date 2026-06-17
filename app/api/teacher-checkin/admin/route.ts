@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase/server'
+import { bangkokToday } from '@/lib/date'
 
 async function assertAdmin(teacherId: string | null) {
   if (!teacherId) return false
@@ -44,7 +45,7 @@ export async function GET(request: Request) {
       .in('id', teacherIds.length > 0 ? teacherIds : ['none'])
 
     // Today attendance
-    const today = new Date().toISOString().split('T')[0]
+    const today = bangkokToday()
     const { data: attendance } = await supabaseServer
       .from('std_teacher_attendance' as any)
       .select('*')

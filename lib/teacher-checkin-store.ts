@@ -1,3 +1,5 @@
+import { bangkokToday } from '@/lib/date'
+
 const STORAGE_KEY = 'stu-face-teacher-checkin'
 
 interface CheckinStatus {
@@ -10,7 +12,7 @@ interface CheckinStatus {
 }
 
 function getToday(): string {
-  return new Date().toISOString().split('T')[0]
+  return bangkokToday()
 }
 
 export function getCheckinStatus(teacherId: string): CheckinStatus | null {

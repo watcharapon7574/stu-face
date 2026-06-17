@@ -10,6 +10,7 @@ import { CONFIDENCE_THRESHOLD } from '@/types/database'
 import { getCurrentPosition, findNearestServicePoint, findClosestServicePoint, type ServicePoint } from '@/lib/geolocation'
 import { getSavedTeacher, saveTeacher, clearTeacher, type SavedTeacher } from '@/lib/teacher-store'
 import { detectFaces, initializeHuman } from '@/lib/face-detection'
+import { bangkokToday } from '@/lib/date'
 import type { FaceEmbedding } from '@/types/database'
 import { matchWorkplaceToServicePoint, matchWorkplaceToClassroom, type ClassroomLike } from '@/lib/workplace-match'
 import WorkplacePromptModal from '@/components/attendance/workplace-prompt-modal'
@@ -894,7 +895,7 @@ export default function AttendanceFlow({
       throw new Error('ไม่พบหน่วยบริการสำหรับการสแกน — เปิด GPS หรือเลือก workplace ก่อน')
     }
 
-    const today = new Date().toISOString().split('T')[0]
+    const today = bangkokToday()
 
     // Thin-client path: write through the SECURITY DEFINER RPC directly
     // (anon is read-only on std_attendance itself). Falls back to the

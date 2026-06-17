@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase/server'
+import { bangkokToday } from '@/lib/date'
 
 // GET /api/teacher-checkin/status?teacher_id=xxx&date=yyyy-mm-dd
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const teacherId = searchParams.get('teacher_id')
-    const date = searchParams.get('date') || new Date().toISOString().split('T')[0]
+    const date = searchParams.get('date') || bangkokToday()
 
     if (!teacherId) {
       return NextResponse.json({ error: 'teacher_id is required' }, { status: 400 })

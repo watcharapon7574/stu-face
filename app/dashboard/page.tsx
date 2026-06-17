@@ -1,13 +1,16 @@
 import { supabaseServer } from '@/lib/supabase/server'
 import DashboardView from '@/components/dashboard/dashboard-view'
+import { bangkokToday } from '@/lib/date'
 
-// Dashboard regenerates primarily via revalidateDashboardReaders() called
-// from attendance writes — that's the freshness source. The 1800s fallback
-// covers the edge case where the day has rolled over but no scan has
-// happened yet (the page reads new Date() at regen time, so we need at
-// least one regen near the day boundary). Down from revalidate=30 which
-// produced ~2,880 ISR writes/day per kiosk fleet.
-export const revalidate = 1800
+// Render fresh on every request. Kiosk check-ins now write straight to
+// Supabase via the record_attendance RPC (thin-client), bypassing the API
+// route — so the old ISR + revalidateDashboardReaders() invalidation no
+// longer fires on a scan and the snapshot went stale ("เช็คแล้วไม่ขึ้น").
+// Realtime only helps tabs already open before the scan (logs show the
+// realtime tenant usually has no connected users), so the snapshot itself
+// must be fresh. This is an internal, low-traffic admin page and the query
+// below no longer hauls face_embeddings, so per-request rendering is cheap.
+export const dynamic = 'force-dynamic'
 
 // Keywords that indicate the teacher works at headquarters
 const HQ_KEYWORDS = ['ห้อง', 'ห้องเรียน', 'Admin', 'ศูนย์การศึกษา']
@@ -61,7 +64,7 @@ function matchWorkplaceToServicePoint(
 const MANAGEMENT_POSITIONS = ['director', 'deputy_director', 'assistant_director']
 
 export default async function DashboardPage() {
-  const today = new Date().toISOString().split('T')[0]
+  const today = bangkokToday()
 
   const [
     attendanceResult,
@@ -73,7 +76,9 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     supabaseServer
       .from('std_attendance' as any)
-      .select('*, student:student_id (*)')
+      // Never pull student.* here — std_students.face_embeddings is a ~6MB
+      // jsonb that times out SSR and spikes egress. Only name/nickname render.
+      .select('*, student:student_id (id, name, nickname)')
       .eq('date', today)
       .order('created_at', { ascending: false }),
     supabaseServer
